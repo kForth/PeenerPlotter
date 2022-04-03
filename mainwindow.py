@@ -1,3 +1,15 @@
+"""
+TODO:
+- Pizza tray stepper motors
+- Peener stow position? (instead of just slow peening)
+- Popup window for premade designs (or better dropdown selector?)
+- Proper scaling
+- Error recovery?
+- Canvas linewidth?
+- Canvas travel lines?
+- Test Connection button
+"""
+
 import os
 from pathlib import Path
 import sys
@@ -14,11 +26,14 @@ from PyQt5.QtGui import QPainter, QColor, QPen, QBrush, QPixmap, QIcon
 from canvas import CanvasPeener
 from engraver import Engraver
 
-TESTING = True
-if not TESTING:
-    import RPi.GPIO as GPIO
-else:
+import platform
+print(platform.platform().lower())
+if "macos" in platform.platform().lower():
+    print("Running on MacOS")
     import GPIO
+else:
+    print("Running on actual Pi")
+    import RPi.GPIO as GPIO
 
 class MainWindow(QMainWindow):
     settings = {
