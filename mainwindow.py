@@ -30,7 +30,7 @@ import platform
 print(platform.platform().lower())
 if "macos" in platform.platform().lower():
     print("Running on MacOS")
-    import GPIO
+    import FakeGPIO as GPIO
 else:
     print("Running on actual Pi")
     import RPi.GPIO as GPIO
@@ -53,8 +53,6 @@ class MainWindow(QMainWindow):
     WORK_OFFSET = (70, -165)
     PEEN_LOW = 20
     PEEN_HIGH = 50
-
-    ser = serial.Serial(baudrate=115200)
 
     def __init__(self):
         super().__init__()
