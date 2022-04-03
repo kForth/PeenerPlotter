@@ -24,7 +24,7 @@ from PyQt5.QtWidgets import QMainWindow, QHeaderView, QTableWidgetItem, QFileDia
 from PyQt5.QtGui import QPainter, QColor, QPen, QBrush, QPixmap, QIcon
 
 from canvas import CanvasPeener
-from engraver import Engraver
+from proto_serial import ProtoSerial
 
 import platform
 print(platform.platform().lower())
@@ -40,7 +40,7 @@ class MainWindow(QMainWindow):
         'port': '/dev/ttyAMA0',
         'flavor': 'grbl',
         'tag_diam': int(1.125*25.4),  # mm (engraveable area diameter)
-        'line_width': 0.5,  # mm - Engraver line width
+        'line_width': 0.5,  # mm - ProtoSerial line width
         'engrave_speed': 1500,  # mm/100/s,
         'travel_speed': 5000,  # mm/100/s,
     }
@@ -64,9 +64,10 @@ class MainWindow(QMainWindow):
         self.canvas = CanvasPeener(self.settings)
         self.canvas_label.parent().layout().replaceWidget(self.canvas_label, self.canvas)
 
-        self.engraver = Engraver()
+        self.protoneer = ProtoSerial()
 
         self.load_premade_designs()
+
         self.designSelectBox.currentTextChanged.connect(self.load_premade_design)
 
         self.actionLoad_Canvas_Template.triggered.connect(self.load_canvas_template)
@@ -147,7 +148,7 @@ class MainWindow(QMainWindow):
         confirm = QMessageBox.question(self, 
             'Home Machine', 
             'Are you sure you want to home the machine?',
-            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No | QMessageBox.Yes,
             QMessageBox.No
         )
         if confirm != QMessageBox.Yes:
@@ -156,15 +157,15 @@ class MainWindow(QMainWindow):
         print("Homing Machine")
         try:
             print("Connecting GRBL")
-            self.engraver.connect(self.settings['port'])
+            self.protoneer.connect(self.settings['port'])
 
             print("Initializing GRBL")
-            self.engraver.send_gcode(chr(24), False)  # Soft Reset
-            self.engraver.send_gcode("$X", False)     # Enable
-            self.engraver.send_gcode("$$")            # Print Settings
+            self.protoneer.send_gcode(chr(24), False)  # Soft Reset
+            self.protoneer.send_gcode("$X", False)     # Enable
+            self.protoneer.send_gcode("$$")            # Print Settings
 
             print("Homing Axes")
-            self.engraver.send_gcode("$H")  # Home all axes
+            self.protoneer.send_gcode("$H")  # Home all axes
 
         except Exception as ex:
             print()
@@ -173,9 +174,9 @@ class MainWindow(QMainWindow):
             
         finally:
             print("Disconnecting GRBL")
-            self.engraver.send_gcode("$SLP")  # Sleep GRBL
-            if self.engraver.is_connected():
-                self.engraver.disconnect()
+            self.protoneer.send_gcode("$SLP")  # Sleep GRBL
+            if self.protoneer.is_connected():
+                self.protoneer.disconnect()
 
 
     def do_engraving_routine(self):
@@ -189,7 +190,7 @@ class MainWindow(QMainWindow):
         confirm = QMessageBox.question(self, 
             'Peen Design', 
             'Are you sure you want to peen this design?',
-            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No | QMessageBox.Yes,
             QMessageBox.No
         )
         if confirm != QMessageBox.Yes:
@@ -199,29 +200,28 @@ class MainWindow(QMainWindow):
         loaded = False
         while not loaded:
             # TODO: Spin pizza tray 180deg
-            confirm = QMessageBox.question(self, 
-                'Peen Design', 
-                'Are you sure you want to peen this design?',
-                QMessageBox.Yes | QMessageBox.No,
+            loaded = QMessageBox.question(self, 
+                'Loading Tag', 
+                'Did the tag load correctly?',
+                QMessageBox.No | QMessageBox.Yes,
                 QMessageBox.No
-            )
-            loaded = confirm == QMessageBox.Yes
+            ) == QMessageBox.Yes
 
         print("Initializing Peener")
         try:
             print("Connecting GRBL")
-            self.engraver.connect(self.settings['port'])
+            self.protoneer.connect(self.settings['port'])
 
             print("Initializing GRBL")
-            self.engraver.send_gcode(chr(24), False)  # Soft Reset
-            self.engraver.send_gcode("$X", False)     # Enable
-            self.engraver.send_gcode("$$")            # Print Settings
+            self.protoneer.send_gcode(chr(24), False)  # Soft Reset
+            self.protoneer.send_gcode("$X", False)     # Enable
+            self.protoneer.send_gcode("$$")            # Print Settings
 
             print("Homing Axes")
-            self.engraver.send_gcode("$H")  # Home all axes
+            self.protoneer.send_gcode("$H")  # Home all axes
 
             print("Initializing Motion")
-            self.engraver.send_gcode([
+            self.protoneer.send_gcode([
                 "G17",   # XY Plane
                 "G21",   # mm mode
                 "G53",   # Machine coords
@@ -229,7 +229,7 @@ class MainWindow(QMainWindow):
             ])
 
             print("Clamping Tag")
-            self.engraver.send_gcode([
+            self.protoneer.send_gcode([
                 "G0 Z6.7 F100",   # Lower Clamp
                 "G4 P0"           # Pause
             ])
@@ -239,7 +239,7 @@ class MainWindow(QMainWindow):
             time.sleep(self.DWELL)
 
             print("Moving into position")
-            self.engraver.send_gcode([
+            self.protoneer.send_gcode([
                 "G92 X70 Y165",   # Set Work origin
                 "G54",            # Work coords
                 "G0 X0",          # Move inline with clamp opening
@@ -253,7 +253,7 @@ class MainWindow(QMainWindow):
                 print(f"Starting Path #{i}")
 
                 print("  Moving to path start")
-                self.engraver.send_gcode([
+                self.protoneer.send_gcode([
                     pt_to_gcode(*path[0]),  # Move to first position
                     "G4 P0"                 # Pause
                 ])
@@ -263,18 +263,18 @@ class MainWindow(QMainWindow):
                 time.sleep(self.DWELL)
 
                 print("  Drawing Path")
-                self.engraver.send_gcode([
+                self.protoneer.send_gcode([
                     "G0 X" + str(round(pt[0] * scale, 2)) + " Y" + str(round(pt[1] * scale, 2))
                     for pt in path[1:]
                 ])
-                self.engraver.send_gcode(["G4 P0"])
+                self.protoneer.send_gcode(["G4 P0"])
 
                 print("  Done, Setting Peener to low speed")
                 self.pwm.start(self.PEEN_LOW)  # Set Peener to travel speed
                 time.sleep(self.DWELL)
 
             print("Parking Peener")
-            self.engraver.send_gcode([
+            self.protoneer.send_gcode([
                 "G0 X0 Y0 F1000",  # Move back to center of tag
                 "G53",             # Machine coods
                 "Y0",              # Move out of clamp
@@ -286,7 +286,7 @@ class MainWindow(QMainWindow):
             self.pwm.start(0)  # Turn off Peener
 
             print("Releasing Clamp")
-            self.engraver.send_gcode([
+            self.protoneer.send_gcode([
                 "G0 Z0",  # Open Clamp
                 "G4 P0"   # Pause
             ])
@@ -300,9 +300,9 @@ class MainWindow(QMainWindow):
             
         finally:
             print("Disconnecting GRBL")
-            self.engraver.send_gcode("$SLP")  # Sleep GRBL
-            if self.engraver.is_connected():
-                self.engraver.disconnect()
+            self.protoneer.send_gcode("$SLP")  # Sleep GRBL
+            if self.protoneer.is_connected():
+                self.protoneer.disconnect()
 
         print("Dispensing Tag")
         # TODO: Spin pizza tray 180deg

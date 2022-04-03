@@ -12,8 +12,12 @@ from PyQt5.QtWidgets import QWidget, QMainWindow, QHeaderView, QTableWidgetItem,
 from PyQt5.QtGui import QPainter, QColor, QPen, QBrush, QPixmap, QImage
 
 class CanvasPeener(QWidget):
+    FLIP_X = True
+    FLIP_Y = True
+
     COLORFUL_PATHS = False
     PEN_COLOR = "#303030"
+    TRAVEL_PEN = "#999999"
 
     BACK_COLOR = "#EEEEEE"
     CIRCLE_COLOR = "#E1E1E1"
@@ -43,7 +47,7 @@ class CanvasPeener(QWidget):
         self.update()
 
     def save_to_file(self, filename):
-        json.dump(self.get_paths(), open(filename, "w+"))
+        json.dump(self.paths, open(filename, "w+"))
         pixmap = self.grab(QRect((self.width() - self.circle_diam) / 2, (self.height() - self.circle_diam) / 2, self.circle_diam, self.circle_diam))
         pixmap.save(filename.replace(".json", ".png"))
         
@@ -78,12 +82,20 @@ class CanvasPeener(QWidget):
             self._set_pen(painter, self.BORDER_COLOR, 3)
         painter.drawEllipse((self.width() - self.circle_diam) / 2, (self.height() - self.circle_diam) / 2, self.circle_diam, self.circle_diam)
 
-        for path in self.get_paths():
-            last_x = path[0][0] * self.circle_diam + self.width() / 2
-            last_y = path[0][1] * self.circle_diam + self.height() / 2
+        last_x = None
+        last_y = None
+        for path in self.paths:
+            first_x = path[0][0] * self.circle_diam + self.width() / 2
+            first_y = path[0][1] * self.circle_diam + self.height() / 2
+            if last_x is not None and last_y is not None:
+                self._set_pen(painter, self.TRAVEL_PEN, self.pen_width)
+                painter.drawLine(last_x, last_y, first_x, first_y)
+
+            last_x = first_x
+            last_y = first_y
             for pt in path[1:]:
                 if self.COLORFUL_PATHS:
-                    path_color = [int(e * 255) for e in colorsys.hsv_to_rgb(len(self.get_paths())*5/360, 1, 1)]
+                    path_color = [int(e * 255) for e in colorsys.hsv_to_rgb(len(self.paths)*5/360, 1, 1)]
                     self._set_pen(painter, path_color, self.pen_width)
                 else:
                     self._set_pen(painter, self.PEN_COLOR, self.pen_width)
@@ -99,12 +111,19 @@ class CanvasPeener(QWidget):
         self.trigger_path_change_event()
 
     def get_paths(self):
-        return self.paths
+        return [
+            [
+                [
+                    pt[0] * (-1 if self.FLIP_X else 1),
+                    pt[1] * (-1 if self.FLIP_Y else 1)
+                ] for pt in path
+            ] for path in self.paths
+        ]
 
     def get_rel_paths(self):
         rel_paths = []
         last_pt = None
-        for path in self.paths:
+        for path in self.get_paths():
             rel_path = []
             for pt in path:
                 if last_pt is None:
@@ -150,7 +169,7 @@ class CanvasPeener(QWidget):
 
     def trigger_path_change_event(self):
         for listener in self.path_change_listeners:
-            listener(self.get_paths())
+            listener(self.paths)
 
     def clear_canvas(self):
         self.clear_paths()

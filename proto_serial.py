@@ -1,7 +1,7 @@
 import serial
 import time
 
-class Engraver:
+class ProtoSerial:
     INIT_STR = "\r\n\r\n"
 
     def __init__(self):
