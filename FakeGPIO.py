@@ -8,6 +8,9 @@ def setmode(*args, **kwargs):
 
 def setup(*args, **kwargs):
     print(f"GPIO.setup args=({args}) kwargs=(kwargs)")
+    
+def output(*args, **kwargs):
+    print(f"GPIO.output args=({args}) kwargs=(kwargs)")
 
 def PWM(*args, **kwargs):
     print(f"GPIO.PWM args=({args}) kwargs=(kwargs)")

@@ -6,7 +6,7 @@ TODO:
 - Proper scaling
 - Error recovery?
 - Canvas linewidth?
-- Canvas travel lines?
+- Canvas travel lines toggle
 - Test Connection button
 """
 
@@ -54,6 +54,13 @@ class MainWindow(QMainWindow):
     PEEN_LOW = 20
     PEEN_HIGH = 50
 
+    # BCM Pin Numbering
+    PEENER_PIN = 12
+    TRAY_DIR_PIN = 16
+    TRAY_STEP_PIN = 20
+
+    TRAY_REV_DIST = 3200
+
     def __init__(self):
         super().__init__()
         uic.loadUi('mainwindow.ui', self)
@@ -84,9 +91,16 @@ class MainWindow(QMainWindow):
         self.stopButton.clicked.connect(self.stop_peener)
 
         GPIO.setmode(GPIO.BCM)
-        GPIO.setup(12, GPIO.OUT)
-        self.pwm = GPIO.PWM(12, 1000)
+
+        # Setup Peener motor PWM Output
+        GPIO.setup(self.PEENER_PIN, GPIO.OUT)
+        self.pwm = GPIO.PWM(self.PEENER_PIN, 1000)
         self.pwm.start(0)
+
+        # Setup Pizza tray Stepper Output
+        GPIO.setup(self.TRAY_DIR_PIN, GPIO.OUT)
+        GPIO.setup(self.TRAY_STEP_PIN, GPIO.OUT)
+        GPIO.output(self.TRAY_DIR_PIN, 1)
 
         self.show()
 
@@ -178,6 +192,13 @@ class MainWindow(QMainWindow):
             if self.protoneer.is_connected():
                 self.protoneer.disconnect()
 
+    def spin_tray(self, revolutions=1, direction=0):
+            GPIO.output(self.TRAY_DIR_PIN, direction)  # 1 = CW, 0 = CCW
+            for _ in range(int(self.TRAY_REV_DIST * revolutions)):
+                GPIO.output(self.TRAY_STEP_PIN, GPIO.HIGH)
+                time.sleep(.001)
+                GPIO.output(self.TRAY_STEP_PIN, GPIO.LOW)
+                time.sleep(.001)
 
     def do_engraving_routine(self):
         if len(self.canvas.get_paths()) < 1:
@@ -196,17 +217,6 @@ class MainWindow(QMainWindow):
         if confirm != QMessageBox.Yes:
             return
 
-        print("Loading Tag")
-        loaded = False
-        while not loaded:
-            # TODO: Spin pizza tray 180deg
-            loaded = QMessageBox.question(self, 
-                'Loading Tag', 
-                'Did the tag load correctly?',
-                QMessageBox.No | QMessageBox.Yes,
-                QMessageBox.No
-            ) == QMessageBox.Yes
-
         print("Initializing Peener")
         try:
             print("Connecting GRBL")
@@ -218,20 +228,40 @@ class MainWindow(QMainWindow):
             self.protoneer.send_gcode("$$")            # Print Settings
 
             print("Homing Axes")
-            self.protoneer.send_gcode("$H")  # Home all axes
+            self.protoneer.send_gcode([
+                "$H",              # Home all axes
+                "G92 X-55 Y-150",  # Set Work origin
+            ])
+
+            self.protoneer.send_gcode("$X", False)     # Enable
+            self.protoneer.send_gcode("$$")            # Print Settings
 
             print("Initializing Motion")
             self.protoneer.send_gcode([
                 "G17",   # XY Plane
                 "G21",   # mm mode
                 "G53",   # Machine coords
-                "G90"    # Absolute mode
+                "G90",   # Absolute mode
+                "G0 Z1",
+                "G4 P0"
             ])
+
+            print("Loading Tag")
+            loaded = False
+            while not loaded:
+                self.spin_tray(1, 1)
+
+                loaded = QMessageBox.question(self, 
+                    'Loading Tag', 
+                    'Did the tag load correctly?',
+                    QMessageBox.No | QMessageBox.Yes,
+                    QMessageBox.No
+                ) == QMessageBox.Yes
 
             print("Clamping Tag")
             self.protoneer.send_gcode([
-                "G0 Z6.7 F100",   # Lower Clamp
-                "G4 P0"           # Pause
+                "G0 Z10.5",   # Lower Clamp
+                "G4 P0"       # Pause
             ])
 
             print("Setting Peener to slow speed")
@@ -240,7 +270,6 @@ class MainWindow(QMainWindow):
 
             print("Moving into position")
             self.protoneer.send_gcode([
-                "G92 X70 Y165",   # Set Work origin
                 "G54",            # Work coords
                 "G0 X0",          # Move inline with clamp opening
                 "Y16",            # Move to edge of tag
@@ -263,6 +292,7 @@ class MainWindow(QMainWindow):
                 time.sleep(self.DWELL)
 
                 print("  Drawing Path")
+                scale = 100
                 self.protoneer.send_gcode([
                     "G0 X" + str(round(pt[0] * scale, 2)) + " Y" + str(round(pt[1] * scale, 2))
                     for pt in path[1:]
@@ -275,10 +305,9 @@ class MainWindow(QMainWindow):
 
             print("Parking Peener")
             self.protoneer.send_gcode([
-                "G0 X0 Y0 F1000",  # Move back to center of tag
-                "G53",             # Machine coods
-                "Y0",              # Move out of clamp
-                "X0",              # Move home
+                "G0 X0 Y0",  # Move back to center of tag
+                "Y-150",
+                "X-55",
                 "G4 P0"            # Pause
             ])
 
@@ -290,6 +319,9 @@ class MainWindow(QMainWindow):
                 "G0 Z0",  # Open Clamp
                 "G4 P0"   # Pause
             ])
+
+            self.spin_tray(0.25, 1)
+            self.spin_tray(0.25, 0)
 
         except Exception as ex:
             print()
