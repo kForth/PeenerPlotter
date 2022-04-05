@@ -1,6 +1,5 @@
 """
 TODO:
-- Pizza tray stepper motors
 - Peener stow position? (instead of just slow peening)
 - Popup window for premade designs (or better dropdown selector?)
 - Proper scaling
@@ -226,15 +225,18 @@ class MainWindow(QMainWindow):
             self.protoneer.send_gcode(chr(24), False)  # Soft Reset
             self.protoneer.send_gcode("$X", False)     # Enable
             self.protoneer.send_gcode("$$")            # Print Settings
+            time.sleep(self.DWELL)
 
             print("Homing Axes")
             self.protoneer.send_gcode([
                 "$H",              # Home all axes
                 "G92 X-55 Y-150",  # Set Work origin
             ])
+            time.sleep(self.DWELL)
 
             self.protoneer.send_gcode("$X", False)     # Enable
             self.protoneer.send_gcode("$$")            # Print Settings
+            time.sleep(self.DWELL)
 
             print("Initializing Motion")
             self.protoneer.send_gcode([
@@ -245,6 +247,7 @@ class MainWindow(QMainWindow):
                 "G0 Z1",
                 "G4 P0"
             ])
+            time.sleep(self.DWELL)
 
             print("Loading Tag")
             loaded = False
@@ -263,6 +266,7 @@ class MainWindow(QMainWindow):
                 "G0 Z10.5",   # Lower Clamp
                 "G4 P0"       # Pause
             ])
+            time.sleep(self.DWELL)
 
             print("Setting Peener to slow speed")
             self.pwm.start(self.PEEN_LOW)
@@ -275,6 +279,7 @@ class MainWindow(QMainWindow):
                 "Y16",            # Move to edge of tag
                 "G4 P1"           # Pause
             ])
+            time.sleep(self.DWELL)
 
             pt_to_gcode = lambda x, y: "G0 X" + str(round(path[0][0] * 100, 2)) + " Y" + str(round(path[0][1] * 100, 2))
 
@@ -286,6 +291,7 @@ class MainWindow(QMainWindow):
                     pt_to_gcode(*path[0]),  # Move to first position
                     "G4 P0"                 # Pause
                 ])
+                time.sleep(self.DWELL)
 
                 print("  Setting Peener to high speed")
                 self.pwm.start(self.PEEN_HIGH)  # Set Peener to peen speed
@@ -296,8 +302,8 @@ class MainWindow(QMainWindow):
                 self.protoneer.send_gcode([
                     "G0 X" + str(round(pt[0] * scale, 2)) + " Y" + str(round(pt[1] * scale, 2))
                     for pt in path[1:]
-                ])
-                self.protoneer.send_gcode(["G4 P0"])
+                ] + ["G4 P0"])
+                time.sleep(self.DWELL)
 
                 print("  Done, Setting Peener to low speed")
                 self.pwm.start(self.PEEN_LOW)  # Set Peener to travel speed
@@ -310,18 +316,24 @@ class MainWindow(QMainWindow):
                 "X-55",
                 "G4 P0"            # Pause
             ])
+            time.sleep(self.DWELL)
 
             print("Stopping Peener")
             self.pwm.start(0)  # Turn off Peener
+            time.sleep(self.DWELL)
 
             print("Releasing Clamp")
             self.protoneer.send_gcode([
                 "G0 Z0",  # Open Clamp
                 "G4 P0"   # Pause
             ])
+            time.sleep(self.DWELL)
 
+            print("Dispensing Tag")
             self.spin_tray(0.25, 1)
+            time.sleep(self.DWELL)
             self.spin_tray(0.25, 0)
+            time.sleep(self.DWELL)
 
         except Exception as ex:
             print()
@@ -335,9 +347,6 @@ class MainWindow(QMainWindow):
             self.protoneer.send_gcode("$SLP")  # Sleep GRBL
             if self.protoneer.is_connected():
                 self.protoneer.disconnect()
-
-        print("Dispensing Tag")
-        # TODO: Spin pizza tray 180deg
 
         print("Done")
 
