@@ -179,8 +179,9 @@ class MainWindow(QMainWindow):
             (".".join(fp.split("\\")[-1].split("/")[-1].split(".")[:-1]).replace("_", " ").title(), fp)
             for fp in glob.glob('designs/*.json')
         ])
-        for key in self.PREMADE_DESIGNS.keys():
-            self.designSelectBox.addItem(QIcon(f'designs/{key.lower().replace(" ", "_")}.png'), key)
+        for i, key in enumerate(self.PREMADE_DESIGNS.keys()):
+            icon = QIcon(f'designs/{key.lower().replace(" ", "_")}.png')
+            self.designSelectBox.addItem(icon, key)
 
     def on_optimize_paths(self):
         self.optimize_path_dialog = QMessageBox(
