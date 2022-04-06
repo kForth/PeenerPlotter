@@ -6,45 +6,58 @@ def pt_dist(p1, p2):
     return ((p2[0] - p1[0])**2 + (p2[1] - p1[1])**2)**0.5
 
 def get_order_score(order):
-    travel_pts = []
+    travel_dist = 0
     last = order[0][-1]
     for path in order[1:]:
-        travel_pts.append([last, path[0]])
+        travel_dist += pt_dist(last, path[0])
         last = path[-1]
-
-    score = sum([pt_dist(*pts) for pts in travel_pts])
-    return score
+    return travel_dist
 
 def randomize_order(order):
+    t_order = list(order)
+
     # Pick a random number of paths to reverse
-    num_paths_to_reverse = randint(0, len(order))
+    num_paths_to_reverse = randint(0, len(t_order))
     if num_paths_to_reverse:
-        all_paths = list(range(len(order)))
+        all_paths = list(range(len(t_order)))
         for _ in range(num_paths_to_reverse):
             i = choice(all_paths)
             all_paths.remove(i)
-            order[i] = list(reversed(order[i]))
+            t_order[i] = list(reversed(t_order[i]))
 
     # Shuffle overall path order
-    shuffle(order)
-    
-    return order
+    shuffle(t_order)
+    return t_order
 
-with open('designs/smiley_face.json') as src:
-    paths = json.load(src)
+def optimize_path_order(paths, iters=1e5):
+    iters = int(iters)
+
+    print(f"Optimizing Path Order")
+    print(f"n_paths={len(paths)} {iters=}")
     best_score = get_order_score(paths)
-    best_order = paths
-    
-    print(f"first_score={best_score}")
+    best_order = list(paths)
+    print(f"Initial Score: {best_score}")
 
-    for i in range(int(1e6)):
-        t_paths = list(best_order)
-        randomize_order(t_paths)
-        score = get_order_score(t_paths)
-        if score < best_score:
-            best_score = score
-            best_order = t_paths
-            with open("designs/temp.json", "w+") as out:
-                json.dump(best_order, out, indent=2)
+    for _ in range(iters):
+        new_order = randomize_order(paths)
+        new_score = get_order_score(new_order)
 
-            print(f"New Best: {best_score}")
+        if new_score < best_score:
+            best_order = new_order
+            best_score = new_score
+            print(f"New Best Score: {best_score}")
+    print("Done")
+    return best_order
+
+if __name__ == "__main__":
+    target = 'shrek'
+    with open(f'designs/{target}.json') as src:
+        paths = json.load(src)
+        print(f'First Score: {get_order_score(paths):0.1f}')
+        
+        optimized = optimize_path_order(paths, 1e6)
+
+        with open(f'designs/{target}_optimized.json', 'w+') as out:
+            json.dump(optimized, out, indent=2)
+
+        print(f'New Best: {get_order_score(optimized):0.1f}')

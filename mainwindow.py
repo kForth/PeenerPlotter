@@ -17,9 +17,10 @@ TODO:
 import os
 import glob
 import json
+from typing import Union
 
 from PyQt5 import uic
-from PyQt5.QtCore import Qt, QRunnable, QThreadPool, pyqtSignal
+from PyQt5.QtCore import Qt, QRunnable, QThreadPool, pyqtSignal, QObject
 from PyQt5.QtWidgets import QMainWindow, QFileDialog, QMessageBox, QProgressDialog
 from PyQt5.QtGui import QIcon
 
@@ -100,6 +101,7 @@ class MainWindow(QMainWindow):
         self.clearButton.clicked.connect(self.canvas.clear_canvas)
         self.undoButton.clicked.connect(self.canvas.undo_path)
         self.redoButton.clicked.connect(self.canvas.redo_path)
+        self.optimizeButton.clicked.connect(self.on_optimize_paths)
         self.designSelectBox.currentTextChanged.connect(self.load_premade_design)
 
         # Control Buttons
@@ -174,11 +176,31 @@ class MainWindow(QMainWindow):
     def refresh_premade_designs(self):
         self.designSelectBox.clear()
         self.PREMADE_DESIGNS = dict([("Load Premade Design", None)] + [
-            (".".join(fp.split("/")[-1].split(".")[:-1]).replace("_", " ").title(), fp)
+            (".".join(fp.split("\\")[-1].split("/")[-1].split(".")[:-1]).replace("_", " ").title(), fp)
             for fp in glob.glob('designs/*.json')
         ])
         for key in self.PREMADE_DESIGNS.keys():
             self.designSelectBox.addItem(QIcon(f'designs/{key.lower().replace(" ", "_")}.png'), key)
+
+    def on_optimize_paths(self):
+        self.optimize_path_dialog = QMessageBox(
+            QMessageBox.Information,
+            'Optimizing Paths', 
+            'Optimizing path order to minimize travel. Please wait...'
+        )
+        self.optimize_path_dialog.setStandardButtons(QMessageBox.StandardButton.NoButton)
+
+        def optimize_paths():
+            self.canvas.optimize_path_order()
+            # self.optimize_path_dialog.hide()
+            self.optimize_path_dialog = None
+        self._active_process = ProcessRunnable(optimize_paths)
+
+        self.optimize_path_dialog.setModal(True)
+        self.optimize_path_dialog.buttonClicked.connect(lambda: QThreadPool.globalInstance().terminate(self._active_process))
+        self.optimize_path_dialog.show()
+
+        self._active_process.start()
         
     # Machine Functions
 
@@ -205,7 +227,6 @@ class MainWindow(QMainWindow):
         if confirm != QMessageBox.Yes:
             return
 
-
         dialog = QProgressDialog(
             "Homing Machine. Please wait...",
             "Cancel",
@@ -213,17 +234,16 @@ class MainWindow(QMainWindow):
             self
         )
         dialog.setWindowTitle("Homing Machine")
-        self.machine.report_routine_progress.connect(lambda e: dialog.setValue(e))
-        self.machine.report_routine_status.connect(lambda e: dialog.setLabelText(f"Homing Machine. Please wait...\n{e}"))
+        self.machine.report_routine_progress.connect(dialog.setValue)
+        self.machine.report_routine_status.connect(dialog.setInformativeText)
         self.machine.routine_finished.connect(lambda e: dialog.hide())
         dialog.canceled.connect(self.machine.e_stop)
         dialog.setModal(True)
         dialog.show()
 
-        self._active_process = ProcessRunnable(self.machine.do_homing_routine, args=())
+        self._active_process = ProcessRunnable(self.machine.do_homing_routine)
         self._active_process.start()
                 
-
     def on_send_to_dotter(self):
         if not self._can_connect_to_machine():
             return
@@ -256,17 +276,18 @@ class MainWindow(QMainWindow):
         dialog.setModal(True)
         dialog.show()
 
-        self._active_process = ProcessRunnable(self.machine.do_engraving_routine, args=(self.canvas.get_paths(),))
+        self._active_process = ProcessRunnable(self.machine.do_engraving_routine, [self.canvas.get_paths()])
         self._active_process.start()
 
-class ProcessRunnable(QRunnable):
-    def __init__(self, target, args):
+class ProcessRunnable(QRunnable, QObject):
+    def __init__(self, target, args=[], kwargs={}):
         QRunnable.__init__(self)
         self.t = target
         self.args = args
+        self.kwargs = kwargs
 
     def run(self):
-        self.t(*self.args)
+        self.t(*self.args, **self.kwargs)
 
     def start(self):
         QThreadPool.globalInstance().start(self)

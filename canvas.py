@@ -1,10 +1,11 @@
 import os
 import json
 
-from PyQt5.QtCore import Qt, QRect, QRectF, pyqtSignal
+from PyQt5.QtCore import Qt, QRect, QRectF, pyqtSignal, QObject
 from PyQt5.QtWidgets import QWidget
 from PyQt5.QtGui import QPainter, QColor, QPen, QBrush, QImage
 
+from _optimize_path_order import optimize_path_order
 from util import *
 
 class PeenerCanvas(QWidget):
@@ -124,7 +125,7 @@ class PeenerCanvas(QWidget):
 
     def set_paths(self, paths):
         self.paths = paths
-        self.trigger_path_change_event()
+        self.path_change_event.emit(self.paths)
 
     def get_paths(self):
         return [[
@@ -159,28 +160,31 @@ class PeenerCanvas(QWidget):
         if len(self.paths) > 0:
             self.redo_paths.append(self.paths.pop())
             self.update()
-            self.trigger_path_change_event()
+            self.path_change_event.emit(self.paths)
 
     def redo_path(self):
         if len(self.redo_paths) > 0:
             self.paths.append(self.redo_paths.pop())
             self.update()
-            self.trigger_path_change_event()
+            self.path_change_event.emit(self.paths)
 
     def clear_paths(self):
         self.paths = []
         self.update()
-        self.trigger_path_change_event()
+        self.path_change_event.emit(self.paths)
 
     def add_path(self, *paths):
         self.paths += paths
-        self.trigger_path_change_event()
+        self.path_change_event.emit(self.paths)
 
     def add_path_pt(self, pt, path_index=-1):
         self.paths[path_index].append(pt)
-        self.trigger_path_change_event()
+        self.path_change_event.emit(self.paths)
 
-    def trigger_path_change_event(self):
+    def optimize_path_order(self, iters=1e5):
+        print("Optimizing Canvas Path Order")
+        self.paths = optimize_path_order(self.paths, iters)
+        self.update()
         self.path_change_event.emit(self.paths)
 
     def clear_canvas(self):
