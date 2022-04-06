@@ -251,7 +251,8 @@ border: 1px solid #444;
     <addaction name="actionLoad_Canvas_Template"/>
     <addaction name="actionClear_Canvas_Template"/>
     <addaction name="separator"/>
-    <addaction name="actionShow_Travel_Lines_on_Canvas"/>
+    <addaction name="actionShow_Travel_Lines"/>
+    <addaction name="actionShow_Colorful_Paths"/>
    </widget>
    <widget class="QMenu" name="menuActions">
     <property name="title">
@@ -271,22 +272,21 @@ border: 1px solid #444;
      </property>
      <addaction name="actionSpin_Tray_360_CCW"/>
      <addaction name="actionSpin_Tray_360_CW"/>
-     <addaction name="actionDispense_Tag_2"/>
+     <addaction name="actionDispense_Tag"/>
     </widget>
     <widget class="QMenu" name="menuClamp">
      <property name="title">
       <string>Clamp</string>
      </property>
-     <addaction name="actionOpen_Clamp_2"/>
+     <addaction name="actionOpen_Clamp"/>
      <addaction name="actionClose_Clamp"/>
     </widget>
     <widget class="QMenu" name="menuMachine">
      <property name="title">
       <string>Machine</string>
      </property>
-     <addaction name="actionHome_Machine_2"/>
+     <addaction name="actionHome_Machine"/>
      <addaction name="actionPut_Machine_To_Sleep"/>
-     <addaction name="actionTest_Connection"/>
     </widget>
     <addaction name="menuMachine"/>
     <addaction name="menuClamp"/>
@@ -308,90 +308,9 @@ border: 1px solid #444;
     <string>Open...</string>
    </property>
   </action>
-  <action name="action_connectDotter">
+  <action name="actionRefresh_Templates">
    <property name="text">
-    <string>Connect</string>
-   </property>
-  </action>
-  <action name="action_disconnectDotter">
-   <property name="text">
-    <string>Disconnect</string>
-   </property>
-  </action>
-  <action name="action_dotterStatus">
-   <property name="text">
-    <string>Status</string>
-   </property>
-  </action>
-  <action name="action_dotterSettings">
-   <property name="text">
-    <string>Settings...</string>
-   </property>
-  </action>
-  <action name="actionBlack">
-   <property name="text">
-    <string>Black</string>
-   </property>
-  </action>
-  <action name="actionBlue">
-   <property name="text">
-    <string>Blue</string>
-   </property>
-  </action>
-  <action name="actionRed">
-   <property name="text">
-    <string>Red</string>
-   </property>
-  </action>
-  <action name="actionCustom">
-   <property name="text">
-    <string>Custom...</string>
-   </property>
-  </action>
-  <action name="actionRainbow">
-   <property name="text">
-    <string>Rainbow</string>
-   </property>
-  </action>
-  <action name="action_penColorPerLayer">
-   <property name="checkable">
-    <bool>true</bool>
-   </property>
-   <property name="text">
-    <string>Pen Color Per Layer</string>
-   </property>
-  </action>
-  <action name="actionClear_Canvas">
-   <property name="text">
-    <string>Clear Canvas</string>
-   </property>
-  </action>
-  <action name="action_undo">
-   <property name="text">
-    <string>Undo</string>
-   </property>
-  </action>
-  <action name="action_redo">
-   <property name="text">
-    <string>Redo</string>
-   </property>
-  </action>
-  <action name="action_clearCanvas">
-   <property name="text">
-    <string>Clear Canvas</string>
-   </property>
-  </action>
-  <action name="action_penColorPerLayer_2">
-   <property name="checkable">
-    <bool>true</bool>
-   </property>
-   <property name="text">
-    <string>Pen Color Per Layer</string>
-   </property>
-  </action>
-  <action name="action_settings">
-   <property name="text">
-    <string>Settings...</string>
+    <string>Refresh Templates</string>
    </property>
   </action>
   <action name="actionLoad_Canvas_Template">
@@ -404,14 +323,26 @@ border: 1px solid #444;
     <string>Clear Canvas Template</string>
    </property>
   </action>
-  <action name="action_homeMachine">
+  <action name="actionShow_Travel_Lines">
+   <property name="checkable">
+    <bool>true</bool>
+   </property>
+   <property name="checked">
+    <bool>true</bool>
+   </property>
    <property name="text">
-    <string>Home Machine</string>
+    <string>Show Travel Lines</string>
    </property>
   </action>
-  <action name="actionDispense_Tag">
+  <action name="actionShow_Colorful_Paths">
+   <property name="checkable">
+    <bool>true</bool>
+   </property>
+   <property name="checked">
+    <bool>false</bool>
+   </property>
    <property name="text">
-    <string>Dispense Tag</string>
+    <string>Colour Paths Individually</string>
    </property>
   </action>
   <action name="actionPulse_Peener_Once">
@@ -424,6 +355,11 @@ border: 1px solid #444;
     <string>Pulse Until Lifted</string>
    </property>
   </action>
+  <action name="actionStop_Peener">
+   <property name="text">
+    <string>Stop</string>
+   </property>
+  </action>
   <action name="actionSpin_Tray_360_CCW">
    <property name="text">
     <string>Spin 360 CCW</string>
@@ -434,17 +370,12 @@ border: 1px solid #444;
     <string>Spin 360 CW</string>
    </property>
   </action>
-  <action name="actionDispense_Tag_2">
+  <action name="actionDispense_Tag">
    <property name="text">
     <string>Dispense Tag</string>
    </property>
   </action>
-  <action name="actionStop_Peener">
-   <property name="text">
-    <string>Stop</string>
-   </property>
-  </action>
-  <action name="actionOpen_Clamp_2">
+  <action name="actionOpen_Clamp">
    <property name="text">
     <string>Open Clamp</string>
    </property>
@@ -454,7 +385,7 @@ border: 1px solid #444;
     <string>Close Clamp</string>
    </property>
   </action>
-  <action name="actionHome_Machine_2">
+  <action name="actionHome_Machine">
    <property name="text">
     <string>Home Machine</string>
    </property>
@@ -462,27 +393,6 @@ border: 1px solid #444;
   <action name="actionPut_Machine_To_Sleep">
    <property name="text">
     <string>Put to Sleep</string>
-   </property>
-  </action>
-  <action name="actionTest_Connection">
-   <property name="text">
-    <string>Test Connection</string>
-   </property>
-  </action>
-  <action name="actionShow_Travel_Lines_on_Canvas">
-   <property name="checkable">
-    <bool>true</bool>
-   </property>
-   <property name="checked">
-    <bool>true</bool>
-   </property>
-   <property name="text">
-    <string>Show Travel Lines on Canvas</string>
-   </property>
-  </action>
-  <action name="actionRefresh_Templates">
-   <property name="text">
-    <string>Refresh Templates</string>
    </property>
   </action>
  </widget>

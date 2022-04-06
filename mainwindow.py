@@ -15,45 +15,47 @@ TODO:
 """
 
 import os
-from pathlib import Path
-import sys
 import glob
-import serial
-import colorsys
-import time
-from multiprocessing import Process
+import json
 
 from PyQt5 import uic
-from PyQt5.QtCore import QSettings, Qt, QRunnable, QThreadPool
-from PyQt5.QtWidgets import QMainWindow, QHeaderView, QTableWidgetItem, QFileDialog, QMessageBox
-from PyQt5.QtGui import QPainter, QColor, QPen, QBrush, QPixmap, QIcon
+from PyQt5.QtCore import Qt, QRunnable, QThreadPool, pyqtSignal
+from PyQt5.QtWidgets import QMainWindow, QFileDialog, QMessageBox, QProgressDialog
+from PyQt5.QtGui import QIcon
 
 from canvas import PeenerCanvas
 from machine import Machine
+from util import *
 
 class MainWindow(QMainWindow):
+    settings_changed = pyqtSignal(object)
+
     settings = {
         'port': '/dev/ttyAMA0',
         'tag_diam': 38 * 2,  # mm (engraveable area diameter)
         'line_width': 0.5,  # mm - Peener line width
-        'engrave_speed': 500,  # mm/100/s,
-        'travel_speed': 800,  # mm/100/s,
         'show_travel_lines': True,
         'colorful_paths': False,
+        'show_machine_pos': True
     }
 
     PREMADE_DESIGNS = {
         "Load Premade Design": None
     }
 
+    SETTINGS_FP = "_settings.json"
+
+    FULL_SCREEN = False
+    HIDE_TITLEBAR = False
+
     def __init__(self):
         super().__init__()
         uic.loadUi('mainwindow.ui', self)
-        # self.setFixedSize(self.size())
-        # self.setWindowFlag(Qt.FramelessWindowHint)
-        # self.setAttribute(Qt.WA_TranslucentBackground)
+        
+        self._active_process = None
 
         self.load_settings_from_file()
+        self.save_settings_to_file()
 
         # Init Custom Path Drawing Widget
         self.canvas = PeenerCanvas(self.settings)
@@ -72,12 +74,12 @@ class MainWindow(QMainWindow):
         # Canvas Menu Actions
         self.actionLoad_Canvas_Template.triggered.connect(self.load_canvas_template)
         self.actionClear_Canvas_Template.triggered.connect(self.canvas.clear_template)
-        self.actionShow_Travel_Lines_on_Canvas.toggled.connect(self.on_settings_changed)
+        self.actionShow_Travel_Lines.toggled.connect(self.update_settings_from_ui)
+        self.actionShow_Colorful_Paths.toggled.connect(self.update_settings_from_ui)
 
         # Machine Actions
-        self.actionHome_Machine_2.triggered.connect(self.home_machine)
+        self.actionHome_Machine.triggered.connect(self.on_home_machine)
         self.actionPut_Machine_To_Sleep.triggered.connect(self.machine.connect_and_sleep)
-        self.actionTest_Connection.triggered.connect(self.machine.test_connection)
 
         # Clamp Actions
         # self.actionOpen_Clamp.triggered.connect(self.machine.wake_and_home_clamp)
@@ -86,7 +88,8 @@ class MainWindow(QMainWindow):
         # Pizza Tray Actions
         self.actionSpin_Tray_360_CCW.triggered.connect(lambda: self.machine.spin_tray(1, self.TRAY_CCW))
         self.actionSpin_Tray_360_CW.triggered.connect(lambda: self.machine.spin_tray(1, self.TRAY_CW))
-        self.actionDispense_Tag_2.triggered.connect(self.machine.dispense_tag)
+        self.actionDispense_Tag.triggered.connect(self.machine.dispense_tag)
+        # self.actionHome_Tray.triggered.connect(self.machine.home_tray)
 
         # Peener Motor Actions
         self.actionPulse_Peener_Once.triggered.connect(self.machine.pulse_peener)
@@ -100,22 +103,46 @@ class MainWindow(QMainWindow):
         self.designSelectBox.currentTextChanged.connect(self.load_premade_design)
 
         # Control Buttons
-        self.sendButton.clicked.connect(self.machine.do_engraving_routine)
+        self.sendButton.clicked.connect(self.on_send_to_dotter)
         self.stopButton.clicked.connect(self.machine.e_stop)
 
         # Styling
         self.sendButton.setStyleSheet("background-color : blue")
         self.stopButton.setStyleSheet("background-color : red")
 
-        self._active_process = None
+        # Connect Events
+        self.settings_changed.connect(self.canvas.update_settings)
+        self.settings_changed.connect(self.machine.update_settings)
+        self.machine.routine_dialog_event.connect(self._handle_routine_dialog)
+        self.machine.report_machine_position.connect(lambda pos: self.canvas.update_machine_pos([e / self.settings['tag_diam'] for e in pos]))
 
-        # self.show()
-        self.showMaximized()
+        if self.FULL_SCREEN:
+            if self.HIDE_TITLEBAR:
+                self.setWindowFlag(Qt.FramelessWindowHint)
+                self.setAttribute(Qt.WA_TranslucentBackground)
+                self.showMaximized()
+        else:
+            self.show()
+
+    def load_settings_from_file(self):
+        if os.path.isfile(self.SETTINGS_FP):
+            with open(self.SETTINGS_FP) as settings_file:
+                self.settings.update(json.load(settings_file))
+
+    def save_settings_to_file(self):
+        with open(self.SETTINGS_FP, "w+") as settings_file:
+            json.dump(self.settings, settings_file)
+
+    def update_settings_from_ui(self):
+        self.settings['show_travel_lines'] = self.actionShow_Travel_Lines.isChecked()
+        self.settings['colorful_paths'] = self.actionShow_Colorful_Paths.isChecked()
 
     def on_settings_changed(self):
-        self.settings['show_travel_lines'] = self.actionShow_Travel_Lines_on_Canvas.checked
-        self.canvas.update_settings(self.settings)
-        self.machine.update_settings(self.settings)
+        self.actionShow_Travel_Lines.setChecked(self.settings['show_travel_lines'])
+        self.actionShow_Colorful_Paths.setChecked(self.settings['colorful_paths'])
+        self.settings_changed.emit(self.settings)
+
+    # Canvas Functions
 
     def save_design(self):
         if self.canvas.get_paths():
@@ -129,6 +156,21 @@ class MainWindow(QMainWindow):
         if filepath[0] and os.path.isfile(filepath[0]) and filepath[0].endswith('.json'):
             self.canvas.load_from_file(filepath[0])
 
+    def load_premade_design(self, key):
+        if key:
+            filepath = self.PREMADE_DESIGNS[key]
+            if filepath is not None:
+                if os.path.isfile(filepath):
+                    self.canvas.load_from_file(filepath)
+                else:
+                    print("File not found")
+            self.designSelectBox.setCurrentText("Load Premade Design")
+
+    def load_canvas_template(self):
+        filepath = QFileDialog.getOpenFileName(self, 'Load Template Image', './')  #, "Image file (*.jpg, *.jpeg, *.png)")
+        if filepath[0] and os.path.isfile(filepath[0]):
+            self.canvas.load_template(filepath[0])
+
     def refresh_premade_designs(self):
         self.designSelectBox.clear()
         self.PREMADE_DESIGNS = dict([("Load Premade Design", None)] + [
@@ -137,29 +179,84 @@ class MainWindow(QMainWindow):
         ])
         for key in self.PREMADE_DESIGNS.keys():
             self.designSelectBox.addItem(QIcon(f'designs/{key.lower().replace(" ", "_")}.png'), key)
+        
+    # Machine Functions
 
-    def load_premade_design(self, key):
-        filepath = self.PREMADE_DESIGNS[key]
-        if filepath is not None:
-            if os.path.isfile(filepath):
-                self.canvas.load_from_file(filepath)
-            else:
-                print("File not found")
-        self.designSelectBox.setCurrentText("Load Premade Design")
+    def _handle_routine_dialog(self, dialog, args, kwargs):
+        self.machine._dialog_resp = dialog(self, *args, **kwargs)
 
-    def load_settings_from_file(self):
-        pass
+    def _can_connect_to_machine(self):
+        if not self.settings['port']:
+            print("Port not set.")
+            QMessageBox.warning(self, 'Cannot Peen Design', 'Port not set.')
+            return False
+        return True
 
-    def save_settings_to_file(self):
-        pass
+    def on_home_machine(self):
+        if not self._can_connect_to_machine():
+            return
 
-    def load_canvas_template(self):
-        filepath = QFileDialog.getOpenFileName(self, 'Load Template Image', './')  #, "Image file (*.jpg, *.jpeg, *.png)")
-        if filepath[0] and os.path.isfile(filepath[0]):
-            self.canvas.load_template(filepath[0])
+        confirm = QMessageBox.question(self, 
+            'Home Machine', 
+            'Are you sure you want to home the machine?',
+            QMessageBox.No | QMessageBox.Yes,
+            QMessageBox.No
+        )
+        if confirm != QMessageBox.Yes:
+            return
 
-    def home_machine(self):
-        self._active_process = ProcessRunnable(self.machine.do_home_routine, args=())
+
+        dialog = QProgressDialog(
+            "Homing Machine. Please wait...",
+            "Cancel",
+            0, 100,
+            self
+        )
+        dialog.setWindowTitle("Homing Machine")
+        self.machine.report_routine_progress.connect(lambda e: dialog.setValue(e))
+        self.machine.report_routine_status.connect(lambda e: dialog.setLabelText(f"Homing Machine. Please wait...\n{e}"))
+        self.machine.routine_finished.connect(lambda e: dialog.hide())
+        dialog.canceled.connect(self.machine.e_stop)
+        dialog.setModal(True)
+        dialog.show()
+
+        self._active_process = ProcessRunnable(self.machine.do_homing_routine, args=())
+        self._active_process.start()
+                
+
+    def on_send_to_dotter(self):
+        if not self._can_connect_to_machine():
+            return
+
+        if len(self.canvas.get_paths()) < 1:
+            print("Canvas needs at least 1 line.")
+            QMessageBox.warning(self, 'Cannot Peen Design', 'Cannot peen design, canvas needs at least one line.')
+            return
+
+        confirm = QMessageBox.question(self, 
+            'Peen Design', 
+            'Are you sure you want to peen this design?',
+            QMessageBox.No | QMessageBox.Yes | QMessageBox.Cancel,
+            QMessageBox.No
+        )
+        if confirm != QMessageBox.Yes:
+            return
+
+        dialog = QProgressDialog(
+            "Peening Design. Please wait...",
+            "Cancel",
+            0, 100,
+            self
+        )
+        dialog.setWindowTitle("Peening Design")
+        self.machine.report_routine_progress.connect(lambda e: dialog.setValue(e))
+        self.machine.report_routine_status.connect(lambda e: dialog.setLabelText(f"Peening Design. Please wait...\n{e}"))
+        self.machine.routine_finished.connect(lambda e: dialog.hide())
+        dialog.canceled.connect(self.machine.e_stop)
+        dialog.setModal(True)
+        dialog.show()
+
+        self._active_process = ProcessRunnable(self.machine.do_engraving_routine, args=(self.canvas.get_paths(),))
         self._active_process.start()
 
 class ProcessRunnable(QRunnable):

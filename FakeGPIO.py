@@ -12,7 +12,12 @@ def setup(*args, **kwargs):
     print(f"GPIO.setup args=({args}) kwargs=(kwargs)")
 
 def output(*args, **kwargs):
-    print(f"GPIO.output args=({args}) kwargs=(kwargs)")
+    # print(f"GPIO.output args=({args}) kwargs=(kwargs)")
+    pass
+
+def input(*args, **kwargs):
+    # print(f"GPIO.input args=({args}) kwargs=(kwargs)")
+    return 1
 
 def PWM(*args, **kwargs):
     print(f"GPIO.PWM args=({args}) kwargs=(kwargs)")

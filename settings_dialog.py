@@ -1,7 +1,5 @@
 from PyQt5 import uic
-from PyQt5.QtCore import QSettings, Qt
-from PyQt5.QtWidgets import QDialog, QHeaderView, QTableWidgetItem
-from PyQt5.QtGui import QPainter, QColor, QPen, QBrush, QPixmap
+from PyQt5.QtWidgets import QDialog
 
 from serial_ports import serial_ports
 

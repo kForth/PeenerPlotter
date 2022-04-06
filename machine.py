@@ -1,42 +1,108 @@
 
+import time
 import platform
+import traceback
 
-if "macos" in platform.platform().lower():
+if any([e in platform.platform().lower() for e in ["macos", "windows"]]):
     import FakeGPIO as GPIO
 else:
     import RPi.GPIO as GPIO
 
+from PyQt5.QtCore import QObject, pyqtSignal
 from PyQt5.QtWidgets import QMessageBox
 
 from proto_serial import ProtoSerial
+from util import *
 
-class Machine:
+class Machine(QObject):
+    # GUI Signals
+    routine_started = pyqtSignal(object)
+    routine_finished = pyqtSignal(object)
+    report_routine_progress = pyqtSignal(object)
+    report_routine_status = pyqtSignal(object)
+    report_machine_position = pyqtSignal(object)
 
-    DWELL = 0.1
-    WORK_OFFSET = (65, 162)
-    ENTRY_POINT = (0, -16)
-    PEEN_LOW = 20
-    PEEN_HIGH = 50
+    routine_dialog_event = pyqtSignal(object, object, object)
+
+    # General Settings
+    DWELL = 0.1  # General wait time, mostly used after changing speed.
+
+    # Coordinates
+    WORK_OFFSET = (65, 162)  # Offset to center of tag
+    ENTRY_POINT = (0, -36)  # Point of entry for tag (relative to center of tag).
+    PRE_ENTRY_POINT = (0, -50)  # Point to move to after peening before opening clamp and dispensing tag (relative to center of tag)
+
+    # Peener Settings
+    PEEN_LOW = 20  # % Speed for travel moves
+    PEEN_HIGH = 50  # % Speed for peening moves
+    PULSE_DELAY = 0.3 # Seconds to turn motor on when trying to lift
+
+    # Gantry Settings
+    GANTRY_PARK_POS = (0, 0, 0)
+    GANTRY_TRAVEL_SPEED = 800
+    GANTRY_PEEN_SPEED = 500
+
+    # Clamp Settings
+    CLAMP_OPEN_POS = 0
+    CLAMP_PARTIAL_POS = 6
+    CLAMP_CLOSE_POS = 10.5
 
     # BCM Pin Numbering
     PEENER_PIN = 12
     TRAY_DIR_PIN = 16
     TRAY_STEP_PIN = 20
+    TRAY_LIMIT_PIN = 21
 
-    TRAY_REV_DIST = 3200
-    TRAY_CCW = 1
-    TRAY_CW = 0
+    # Tray Movement
+    TRAY_REV_DIST = 3200  # Number of steps for 1 revolution (200 steps/rev * 16 microstepping)
+    TRAY_CCW = 1  # Bit value for CCW movement.
+    TRAY_CW = 0  # Bit value for CW movement.
+    TRAY_SPEED = 1000  # Step Freqeuncy Hz
+    TRAY_HOME_SPEED = 500   # Step Freqeuncy Hz
 
+    # GRBL Commands
     GRBL_RESET = chr(24)
+    GRBL_ENABLE = "$X"
+    GRBL_HOLD = "!"
+    GRBL_HOME_ALL = "$H"
+    GRBL_HOME_X = "$HX"
+    GRBL_HOME_Y = "$HY"
+    GRBL_HOME_Z = "$HZ"
+    GRBL_PRINT_SETTINGS = "$$"
+    GRBL_STATUS = "?"
+    GRBL_IDLE_HOLD_ON = "$1=255"
+    GRBL_IDLE_HOLD_OFF = "$1=10"
+    GRBL_SLEEP = "$SLP"
+    GRBL_SET_TAG_OFFSET = f"G92 X-{WORK_OFFSET[0]} Y-{WORK_OFFSET[1]}"
+    GRBL_MACHINE_REL_COORDS = "G52 X0 Y0"  # Coordinates relative to machine origin
+    GRBL_TAG_REL_CORRDS = "G54"  # Coordiantes releative to tag center
+
+    GRBL_TRAVEL_XYZ = lambda self, x, y, z: f"G0 X{x} Y{y} Z{z}"
+    GRBL_TRAVEL_XY = lambda self, x, y: f"G0 X{x} Y{y}"
+    GRBL_TRAVEL_X = lambda self, x: f"G0 X{x}"
+    GRBL_TRAVEL_Y = lambda self, y: f"G0 Y{y}"
+    GRBL_TRAVEL_Z = lambda self, z: f"G0 Z{z}"
+    GRBL_PEEN_XY = lambda self, x, y: f"G1 X{x} Y{y} F{self.GANTRY_PEEN_SPEED}"  # f"G0 X{x} Y{y}"
+
+    GRBL_PARK_ALL = GRBL_TRAVEL_XYZ(None, *GANTRY_PARK_POS)
+    GRBL_CLOSE_CLAMP = GRBL_TRAVEL_Z(None, CLAMP_CLOSE_POS)
+    GRBL_OPEN_CLAMP = GRBL_TRAVEL_Z(None, CLAMP_OPEN_POS)
+    GRBL_OPEN_CLAMP_PARTIAL = GRBL_TRAVEL_Z(None, CLAMP_PARTIAL_POS)
 
     def __init__(self, window, settings):
+        QObject.__init__(self)
         self.window = window
         self.settings = settings
 
+        # Init Util Variables
+        self._routine_progress = 0
+        self._should_stop = False
+
         # Init Serial Connection Manager
-        self.protoneer = ProtoSerial()
+        self.ser = ProtoSerial()
 
         # Init GPIO to GBCM Pin Mode - use IO numbers, not physical pin numbers
+        # https://community.element14.com/cfs-file/__key/telligent-evolution-components-attachments/13-153-00-00-00-01-74-28/pi3_5F00_gpio.png
         GPIO.setmode(GPIO.BCM)
 
         # Setup Peener motor PWM Output
@@ -44,131 +110,189 @@ class Machine:
         self.pwm = GPIO.PWM(self.PEENER_PIN, 1000)
         self.pwm.start(0)
 
-        # Setup Pizza tray Stepper Output
+        # Setup Pizza Tray Pins
+        GPIO.setup(self.TRAY_LIMIT_PIN, GPIO.IN)
         GPIO.setup(self.TRAY_DIR_PIN, GPIO.OUT)
         GPIO.setup(self.TRAY_STEP_PIN, GPIO.OUT)
         GPIO.output(self.TRAY_DIR_PIN, 1)
 
     def update_settings(self, settings):
         self.settings = settings
+    
+    def _check_should_stop(self):
+        if self._should_stop:
+            self._should_stop = False
+            raise _CancelRoutineExpcetion()
+
+    def _connect(self, enable=True):
+        self._was_connected = self.ser.is_connected()
+        if not self._was_connected:
+            self._set_status("Connecting GRBL")
+            self.ser.connect(self.settings['port'])
+
+            self._set_status("Initializing GRBL")
+            self.ser.send(self.GRBL_RESET, False)
+            self.ser.send([
+                self.GRBL_PRINT_SETTINGS,
+                self.GRBL_IDLE_HOLD_OFF
+            ])
+            if(enable):
+                self.ser.send(self.GRBL_ENABLE)
+            time.sleep(self.DWELL)
+        
+    def _disconnect(self):
+        if self.ser.is_connected():
+            self.ser.disconnect()
+        self._was_connected = False
+
+    def _disconnect_if_wasnt(self):
+        if self.ser.is_connected() and not self._was_connected:
+            self.ser.disconnect()
+    
+    def _sleep(self):
+        if self.ser.is_connected():
+            self._set_status("Putting GRBL to Sleep")
+            self.ser.send(self.GRBL_SLEEP)
+        
+    def __func_to_name(self, func_name):
+        return func_name.replace("_", " ").title()[(3 if func_name[:3] == "do_" else 0):]
+
+    # GUI Event Functions    
+    
+    def get_dialog_response(self, dialog, *args, **kwargs):
+        self._dialog_resp = None
+        self.routine_dialog_event.emit(dialog, args, kwargs)
+        while self._dialog_resp is None:
+            time.sleep(0.5)
+        return self._dialog_resp
+
+    def _reset_progress(self, status="Ready"):
+        self._set_progress(0, status)
+    
+    def _increment_progress(self, amount, status=None):
+        self._set_progress(self._routine_progress + amount, status)
+
+    def _set_progress(self, progress, status=None):
+        self._routine_progress = max(0, min(100, int(progress)))
+        self.report_routine_progress.emit(self._routine_progress)
+        if status:
+            self._set_status(status)
+        self._check_should_stop()
+
+    def _set_status(self, status):
+        self._routine_status = status
+        status_str = f"{self._routine_name}: {self._routine_status}"
+        print(status_str)
+        self.report_routine_status.emit(status_str)
+        self._check_should_stop()
+
+    # Decorators
+
+    def __as_routine(name):
+        def wrapper(func):
+            def inner(self, *args, **kwargs):
+                self._routine_name = name
+                self._set_progress(0, f"Starting")
+                self.routine_started.emit(name)
+                result = func(self, *args, **kwargs)
+                self.routine_finished.emit(result)
+                self.routine_dialog_event.emit(
+                    QMessageBox.information, [
+                        f"{self._routine_name} Finished",
+                        f"{self._routine_name} has finished!",
+                        QMessageBox.Ok
+                    ], {}
+                )
+                return result
+            return inner
+        return wrapper
+    
+    def __with_connection(func):
+        def wrapper(self, *args, **kwargs):
+            self._reset_progress()
+            result = None
+            try:
+                self._set_progress(1, "Connecting")
+                self._connect()
+
+                self._set_progress(2, "Resetting GRBL")
+                self.ser.send(self.GRBL_RESET, False)
+
+                self._set_progress(5, "GRBL Ready")
+                result = func(self, *args, **kwargs)
+            except _CancelRoutineExpcetion as ex:
+                self._set_status("Cancelled")
+                # result = ex
+            except Exception as ex:
+                traceback.print_exc()
+
+                self._set_status("Error")
+                self.e_stop()
+                self.routine_dialog_event.emit(QMessageBox.critical, [
+                    "Error While Peening", 
+                    "An Error occured while Peening. Machine has been stopped for safety."
+                ], {})
+
+                # result = ex
+            finally:
+                self.pwm.start(0)
+                self.ser.send(self.GRBL_IDLE_HOLD_OFF)
+                self._sleep()
+                self._disconnect_if_wasnt()
+                if result is not None:
+                    self._set_progress(100, "Done")
+            return result
+        return wrapper
 
     def e_stop(self):
+        print("E-Stop")
+        self._should_stop = True
         self.pwm.start(0)  # Turn off Peener
-        if self.protoneer.is_connected():
-            self.protoneer.send_gcode([
-                self.GRBL_RESET,  # Soft Reset
-                "!",  # Cyclehold
-                "$1=0",  # Steppers off when Idle
-                "$SLP"  # Sleep GRBL
-            ])
-        # TODO: Force quit routine
+        self._connect(False)
+        self.ser.send([
+            self.GRBL_HOLD,
+            self.GRBL_IDLE_HOLD_OFF,
+            self.GRBL_SLEEP
+        ])
 
-    def do_home_routine(self):
-        if not self.settings['port']:
-            print("Port not set.")  # TODO: Popup Dialog
-            return
+    def get_machine_status(self):
+        self._connect(False)
+        yield self.ser.send(self.GRBL_STATUS)
+        self._disconnect_if_wasnt()
 
-        QMetaObject.invokeMethod(log,
-            "append", Qt.QueuedConnection, 
-            Q_ARG(str, text)
-        )
-        confirm = QMessageBox.question(self.window, 
-            'Home Machine', 
-            'Are you sure you want to home the machine?',
-            QMessageBox.No | QMessageBox.Yes,
-            QMessageBox.No
-        )
-        if confirm != QMessageBox.Yes:
-            return
-
-        was_connected = self.protoneer.is_connected()
-
-        print("Homing Machine")
-        try:
-            if not was_connected:
-                print("Connecting GRBL")
-                self.protoneer.connect(self.settings['port'])
-
-            print("Initializing GRBL")
-            self.protoneer.send_gcode(self.GRBL_RESET, False)  # Soft Reset
-            self.protoneer.send_gcode("$X", False)     # Enable
-            self.protoneer.send_gcode("$$")            # Print Settings
-
-            print("Homing Axes")
-            self.protoneer.send_gcode("$H")  # Home all axes
-            self.wait_for_idle()
-
-        except Exception as ex:
-            print()
-            print(ex)
-            print("Exception Occured while Homing Machine!")
-            
-        finally:
-            if self.protoneer.is_connected():
-                print("Putting GRBL to Sleep")
-                self.protoneer.send_gcode("$SLP")  # Sleep GRBL
-                if not was_connected:
-                    print("Disconnecting GRBL")
-                    self.protoneer.disconnect()
-
-    def test_connection(self):
-        print("Testing Connection")
-        was_connected = self.protoneer.is_connected()
-        try:
-            if was_connected:
-                self.protoneer.disconnect()
-            self.protoneer.connect(sefl.settings['port'])
-            yield True
-        except Exception as ex:
-            print()
-            print(ex)
-            print(f"Exception Raised while testing connection! {was_connected=}")
-            yield False
-        finally:
-            if not was_connected and self.protoneer.is_connected():
-                print("Disconnecting GRBL")
-                self.protoneer.disconnect()
-
-    def connect_and_sleep(self):
-        print("Connecting and Putting GRBL to Sleep")
-        was_connected = self.protoneer.is_connected()
-        try:
-            if not was_connected:
-                self.protoneer.connect(sefl.settings['port'])
-            print("Putting GRBL to Sleep")
-            self.protoneer.send_gcode("$SLP")  # Sleep GRBL
-            yield True
-        except Exception as ex:
-            print()
-            print(ex)
-            print(f"Exception Raised while trying to sleep! {was_connected=}")
-            yield False
-        finally:
-            if not was_connected and self.protoneer.is_connected():
-                print("Disconnecting GRBL")
-                self.protoneer.disconnect()
-
-    def wait_for_idle(self):
+    def _wait_for_idle(self):
         print("Waiting for Idle")
-        status = self.protoneer.send_gcode("?")
+        status = []
         while not any(["Idle" in e for e in status]):
             time.sleep(0.25)
-            status = self.protoneer.send_gcode("?")
-            print(status)
+            status = self.get_machine_status()
+    
+    # Tray Util Functions
 
-    def spin_tray(self, revolutions=1, direction=0):
+    def spin_tray(self, revolutions=1, direction=TRAY_CCW):
         print(f"Spinning Tray {revolutions=} {direction=}")
-        GPIO.output(self.TRAY_DIR_PIN, direction)  # 1 = CCW, 0 = CW
+        GPIO.output(self.TRAY_DIR_PIN, direction)
         for _ in range(int(self.TRAY_REV_DIST * revolutions)):
             GPIO.output(self.TRAY_STEP_PIN, GPIO.HIGH)
-            time.sleep(.001)
+            time.sleep(1 / self.TRAY_SPEED)
             GPIO.output(self.TRAY_STEP_PIN, GPIO.LOW)
-            time.sleep(.001)
+            time.sleep(1 / self.TRAY_SPEED)
 
-    def do_load_tag_routine(self, err_on_cancel=True):
+    def home_tray(self, direction=TRAY_CCW):
+        print("Homing Tray")
+        GPIO.output(self.TRAY_DIR_PIN, direction)
+        while GPIO.input(self.TRAY_LIMIT_PIN):
+            GPIO.output(self.TRAY_STEP_PIN, GPIO.HIGH)
+            time.sleep(1 / self.TRAY_HOME_SPEED)
+            GPIO.output(self.TRAY_STEP_PIN, GPIO.LOW)
+            time.sleep(1 / self.TRAY_HOME_SPEED)
+
+    def load_tag(self, err_on_cancel=True):
         print("Loading Tag")
         self.spin_tray(1, self.TRAY_CCW)
-        resp = QMessageBox.question(self.window, 
+
+        resp = self.get_dialog_response(
+            QMessageBox.question,
             'Loading Tag', 
             'Did the tag load correctly?',
             QMessageBox.No | QMessageBox.Yes | QMessageBox.Cancel,
@@ -176,24 +300,34 @@ class Machine:
         )
         if resp == QMessageBox.Cancel:
             if err_on_cancel:
-                raise CancelRoutineExpcetion()
+                raise _CancelRoutineExpcetion()
             else:
                 return False
         elif resp == QMessageBox.No:
-            do_load_tag_routine()
+            self.load_tag()
         else:
             return True
 
+    def dispense_tag(self):
+        print("Dispensing Tag")
+        self.spin_tray(0.25, self.TRAY_CCW)  # Spin tray 1/4 rev CCW to dispense tag
+        time.sleep(self.DWELL)
+        self.spin_tray(0.25, self.TRAY_CW)  # Spin tray 1/4 rev CW to park tray
+        time.sleep(self.DWELL)
+
+    # Peener Util Functions
+
     def pulse_peener(self):
         print("Pulsing Peener")
-        self.pwm.start(self.PEEN_HIGH)
-        time.sleep(0.3)
-        self.pwm.start(0)
-        time.sleep(0.5)
+        self.pwm.start(self.PEEN_HIGH)  # Briefly turn on peener motor
+        time.sleep(self.PULSE_DELAY)
+        self.pwm.start(0)  # Turn back off
+        time.sleep(self.PULSE_DELAY * 2)  # Wait for deceleration
 
     def pulse_peener_until_up(self, err_on_cancel=True):
         self.pulse_peener()
-        resp = QMessageBox.question(self.window, 
+        resp = self.get_dialog_response(
+            QMessageBox.question,
             'Stopping Peener', 
             'Is the peener lifted off the tag?',
             QMessageBox.No | QMessageBox.Yes | QMessageBox.Cancel,
@@ -201,162 +335,139 @@ class Machine:
         )
         if resp == QMessageBox.Cancel:
             if err_on_cancel:
-                raise CancelRoutineExpcetion()
+                raise _CancelRoutineExpcetion()
             else:
                 return False
         elif resp == QMessageBox.No:
-            pulse_peener_until_up()
+            self.pulse_peener_until_up()
         else:
             return True
 
-    def dispense_tag(self):
-        print("Dispensing Tag")
-        self.spin_tray(0.25, self.TRAY_CCW)
+    # Routines
+
+    @__as_routine("Connect & Sleep Routine")
+    @__with_connection
+    def connect_and_sleep(self):
+        self._set_progress(10, "Putting GRBL to Sleep")
+        self._sleep()
+        self._set_progress(100, "Done")
+        return self.ser.is_connected()
+
+    @__as_routine("Homing Routine")
+    @__with_connection
+    def do_homing_routine(self):
+        self._set_progress(10, "Homing Clamp (Z)")
+        self.ser.send(self.GRBL_HOME_Z)
+        self._wait_for_idle()
+        self._set_progress(25, "Clamp Homed")
+        time.sleep(1)
+
+        self._set_progress(30, "Homing X Axis")
+        self.ser.send(self.GRBL_HOME_X)
+        self._wait_for_idle()
+        self._set_progress(50, "X Axis Homed")
+        time.sleep(1)
+
+        self._set_progress(55, "Homing Y Axis")
+        self.ser.send(self.GRBL_HOME_Y)
+        self._wait_for_idle()
+        self._set_progress(75, "Y Axis Homed")
+        time.sleep(1)
+
+        # self._set_progress(80, "Homing Tray")
+        # self.home_tray()
+        self._set_progress(100, "Homing Done")
+        time.sleep(1)
+        return True
+    
+    @__as_routine("Engraving Routine")
+    @__with_connection
+    def do_engraving_routine(self, paths):
+        self._set_progress(6, "Homing Machine")
+        self.ser.send(self.GRBL_HOME_ALL)
+        self._wait_for_idle()
+        self._set_progress(7, "Homing Done")
+
+        self._set_progress(9, "Initializing Motion")
+        self.ser.send([
+            self.GRBL_SET_TAG_OFFSET,
+            self.GRBL_IDLE_HOLD_ON,
+            "G17",  # XY Plane
+            "G21",  # mm mode
+            "G90",  # Absolute coord mode
+            self.GRBL_MACHINE_REL_COORDS,
+            self.GRBL_ENABLE,
+            # self.GRBL_TRAVEL_Z(1)  # Move clamp up a litte (really just to activate servos to let tray spin)
+        ])
         time.sleep(self.DWELL)
-        self.spin_tray(0.25, self.TRAY_CW)
+
+        self._set_progress(10, "Loading Tag")
+        self.load_tag()
+
+        self._set_progress(12, "Clamping Tag")
+        self.ser.send(self.GRBL_CLOSE_CLAMP)
+        self._wait_for_idle()
+
+        self._set_progress(15, "Moving To Tag")
+        self.ser.send([
+            self.GRBL_TAG_REL_CORRDS,
+            self.GRBL_TRAVEL_XY(*self.PRE_ENTRY_POINT),  # Move towards tag
+            self.GRBL_TRAVEL_XY(*self.ENTRY_POINT)  # Move into tag area
+        ])
+
+        # Path points are between -0.5 and 0.5 represnting +/- 50% of engraveable area, multiple by the tag diameter to scale up.
+        # Also round to 2 decimal places to clean it up.
+        scale = self.settings['tag_diam']
+        scale_pt = lambda pts: [round(e * scale, 2) for e in pts] 
+
+        prog_after_paths = 80
+        prog_per_path = (prog_after_paths - self._routine_progress) / (len(paths) + 1)
+        for i, path in enumerate(paths):
+            self._set_status(f"Drawing Path #{i}")
+
+            print("  Moving to path start")
+            self.ser.send(self.GRBL_TRAVEL_XY(*scale_pt(path[0])))  # Move to first position
+            self._wait_for_idle()
+            self._increment_progress(prog_per_path)
+
+            print("  Setting Peener to High Speed")
+            self.pwm.start(self.PEEN_HIGH)  # Set Peener to peen speed
+            time.sleep(self.DWELL)
+
+            print("  Drawing Path")
+            self.ser.send([
+                self.GRBL_PEEN_XY(*scale_pt(pt))  # Draw each point of the path
+                for pt in path[1:]  # Skip the first point because we're already there
+            ])
+            self._wait_for_idle()
+
+            print("  Done Path, Setting Peener to Low Speed")
+            self.pwm.start(self.PEEN_LOW)  # Set Peener to travel speed
+            time.sleep(self.DWELL)
+
+        self._set_progress(prog_after_paths, "Stopping Peener")
+        self.pwm.start(0)  # Turn off Peener
         time.sleep(self.DWELL)
 
-    def do_engraving_routine(self, step=0):
-        if len(self.canvas.get_paths()) < 1:
-            print("Canvas needs at least 1 line.")
-            QMessageBox.warning(self.window, 'Cannot Peen Design', 'Cannot peen design, canvas needs at least one line.')
-            return
-        if not self.settings['port']:
-            print("Port not set.")  # TODO: Popup Dialog
-            QMessageBox.warning(self.window, 'Cannot Peen Design', 'Port not set.')
-            return
+        self._set_progress(82, "Lifting Peener")
+        self.pulse_peener_until_up()
 
-        confirm = QMessageBox.question(self.window, 
-            'Peen Design', 
-            'Are you sure you want to peen this design?',
-            QMessageBox.No | QMessageBox.Yes | QMessageBox.Cancel,
-            QMessageBox.No
-        )
-        if confirm != QMessageBox.Yes:
-            return
+        self._set_progress(85, "Moving Off Tag")
+        self.ser.send([
+            self.GRBL_TRAVEL_XY(*self.ENTRY_POINT),  # Move back to entry point
+            self.GRBL_TRAVEL_XY(*self.PRE_ENTRY_POINT),  # Move out of tag area
+            self.GRBL_OPEN_CLAMP_PARTIAL
+        ])
+        self._wait_for_idle()
 
-        print("Initializing Peener")
-        try:
-            print("Connecting GRBL")
-            self.protoneer.connect(self.settings['port'])
+        self._set_progress(90, "Dispensing Tag")
+        self.dispense_tag()
 
-            print("Initializing GRBL")
-            self.protoneer.send_gcode(self.GRBL_RESET, False)  # Soft Reset
-            self.protoneer.send_gcode("$X")     # Enable
-            self.protoneer.send_gcode("$$")     # Print Settings
-            time.sleep(self.DWELL)
+        self._set_progress(95, "Parking Machine")
+        self.ser.send(self.GRBL_PARK_ALL)  # Park Gantry
+        self._wait_for_idle()
 
-            print("Homing Axes")
-            self.protoneer.send_gcode("$H")  # Home all axes
-            self.wait_for_idle()
+        self._set_progress(100, "Done")
 
-            self.protoneer.send_gcode([
-                f"G92 X-{self.WORK_OFFSET[0]} Y-{self.WORK_OFFSET[1]}",  # Set Work origin
-                "$1=255",  # Position Hold steppers when Idle
-                "$X",  # Enable
-            ])
-            time.sleep(self.DWELL)
-
-            print("Initializing Motion")
-            self.protoneer.send_gcode([
-                "G17",   # XY Plane
-                "G21",   # mm mode
-                "G53",   # Machine coords
-                "G90"    # Absolute mode
-                # "G0 Z1"  # Move clamp up a litte (really just to activate servos to let tray spin)
-            ])
-            time.sleep(self.DWELL)
-
-            self.do_load_tag_routine()
-
-            print("Clamping Tag")
-            self.protoneer.send_gcode("G0 Z10.5")  # Lower Clamp
-            self.wait_for_idle()
-
-            print("Moving into position")
-            self.protoneer.send_gcode([
-                "G54",            # Work coords
-                f"G0 X{self.ENTRY_POINT[0]} Y{self.ENTRY_POINT[0]}",  # Move toward tag diagonally
-                f"Y{self.ENTRY_POINT[1]}"  # Move into tag area
-            ])
-
-            scale = self.settings['tag_diam']
-            pt_to_gcode = lambda x, y: "G0 X" + str(round(path[0][0] * scale, 2)) + " Y" + str(round(path[0][1] * scale, 2))
-
-            for i, path in enumerate(self.canvas.get_paths()):
-                print(f"Starting Path #{i}")
-
-                print("  Moving to path start")
-                self.protoneer.send_gcode(pt_to_gcode(*path[0]))  # Move to first position
-                self.wait_for_idle()
-
-                print("  Setting Peener to high speed")
-                self.pwm.start(self.PEEN_HIGH)  # Set Peener to peen speed
-                time.sleep(self.DWELL)
-
-                print("  Drawing Path")
-                self.protoneer.send_gcode([
-                    "G0 X" + str(round(pt[0] * scale, 2)) + " Y" + str(round(pt[1] * scale, 2))
-                    for pt in path[1:]
-                ])
-                self.wait_for_idle()
-
-                print("  Done, Setting Peener to low speed")
-                self.pwm.start(self.PEEN_LOW)  # Set Peener to travel speed
-                time.sleep(self.DWELL)
-
-            print("Stopping Peener")
-            self.pwm.start(0)  # Turn off Peener
-            time.sleep(self.DWELL)
-
-            print("Lifting Peener")
-            self.pulse_peener_until_up()
-
-            print("Parking Peener")
-            self.protoneer.send_gcode([
-                f"G0 X{self.ENTRY_POINT[0]} Y{self.ENTRY_POINT[1]}",  # Move back to entry point
-                f"Y-{self.WORK_OFFSET[1] - self.WORK_OFFSET[0]}"  # Move out of clamp
-            ])
-            self.wait_for_idle()
-
-            self.protoneer.send_gcode([
-                f"G0 Z0",  # Open Clamp
-                f"X-{self.WORK_OFFSET[0]} Y-{self.WORK_OFFSET[1]}"  # Move to home position
-            ])
-            time.sleep(2)
-            # self.wait_for_idle()
-
-            self.dispense_tag()
-
-        except CancelRoutineExpcetion():
-            print("Routine Cancelled by user!")
-
-        except Exception as ex:
-            print()
-            print(ex)
-            print("Exception Occured with Peening!")
-            print("Stopping Peener (EX)")
-            self.e_stop()
-            QMessageBox.critical(self.window,
-                "Error While Peening", 
-                "An Error occured while Peening. Machine has been stopped for safety."
-            )
-            
-        finally:
-            print("Stopping Peener")
-            self.pwm.start(0)
-            print("Disconnecting GRBL")
-            if self.protoneer.is_connected():
-                self.protoneer.send_gcode([
-                    "$1=0",  # Steppers off when Idle
-                    "$SLP"  # Sleep GRBL
-                ])
-                if not was_connected:
-                    self.protoneer.disconnect()
-
-        print("Done")
-
-
-class CancelRoutineExpcetion(Exception):
-    def __init__(self):
-        super(self).__init__()
+class _CancelRoutineExpcetion(Exception):
+    pass

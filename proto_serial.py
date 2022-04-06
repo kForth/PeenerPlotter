@@ -2,7 +2,9 @@ import serial
 import time
 
 import platform
-IS_FAKE = "macos" in platform.platform().lower()
+IS_FAKE = any([e in platform.platform().lower() for e in ["macos", "windows"]])
+
+DEBUG_PRINT = False
 
 class ProtoSerial:
     INIT_STR = "\r\n\r\n"
@@ -23,7 +25,7 @@ class ProtoSerial:
         self.ser.port = port
         self.ser.open()
 
-        self.send_gcode(self.INIT_STR, False)
+        self.send(self.INIT_STR, False)
         time.sleep(2)
         self.ser.flushInput()
 
@@ -39,29 +41,36 @@ class ProtoSerial:
             return self._connected
         return self.ser.is_open
 
-    def send_gcode(self, gcode, wait_for_resp=True):
+    def send(self, gcode, wait_for_resp=True):
         if type(gcode) is str:
             gcode = [gcode]
+
         if IS_FAKE:
-            print(f"Send: {gcode}")
+            if DEBUG_PRINT:
+                print(f"Send: {gcode}")
             if any(["$H" in e for e in gcode]):
-                time.sleep(10)
+                time.sleep(5)
+            elif any(["G0" in e for e in gcode]):
+                time.sleep(0.1)
             return ["Idle"]
+
         resps = []
         if self.ser.is_open:
             # Stream g-code to grbl
             for line in gcode:
                 l = line.strip()
-                if line:
+                if not line:
+                    continue
+                if DEBUG_PRINT:
                     print(f'Sending: {self._escape_str(line)}')
-                    self.ser.write((f'{l}\n').encode())
-                    if wait_for_resp:
-                        while not self.ser.in_waiting:
-                            time.sleep(0.1)
-                        while self.ser.in_waiting:
-                            resp = self.ser.readline().decode().strip()
-                            print(f'  Recv: {self._escape_str(resp)}')
-                            resps += [resp]
+                self.ser.write((f'{l}\n').encode())
+                if wait_for_resp:
+                    while not self.ser.in_waiting:
+                        time.sleep(0.1)
+                    while self.ser.in_waiting:
+                        resps += [self.ser.readline().decode().strip()]
+                        if DEBUG_PRINT:
+                            print(f'  Recv: {self._escape_str(resps[-1])}')
             return resps
         return False
 
