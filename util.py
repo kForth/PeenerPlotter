@@ -44,7 +44,7 @@ def gen_colours(n, randomize=False, skip_wraparound=True, skip_yellow=True):
     """
     colours = []
     for i in range(n):
-        hue = i / (n - 1)
+        hue = i / min(n - 1, 1)
         lum = 0.5 + randint(0, 10) / 100
         sat = 0.5 + randint(0, 10) / 100
 
