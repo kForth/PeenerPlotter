@@ -11,11 +11,10 @@ from PyQt5.QtCore import QSettings, Qt, QRect, QRectF
 from PyQt5.QtWidgets import QWidget, QMainWindow, QHeaderView, QTableWidgetItem, QLabel
 from PyQt5.QtGui import QPainter, QColor, QPen, QBrush, QPixmap, QImage
 
-class CanvasPeener(QWidget):
+class PeenerCanvas(QWidget):
     FLIP_X = True
     FLIP_Y = True
 
-    COLORFUL_PATHS = False
     PEN_COLOR = "#303030"
     TRAVEL_PEN = "#999999"
 
@@ -26,7 +25,7 @@ class CanvasPeener(QWidget):
     MARGIN = 20  # px
 
     def __init__(self, settings, *args, **kwargs):
-        super(CanvasPeener, self).__init__(*args, **kwargs)
+        super(PeenerCanvas, self).__init__(*args, **kwargs)
         self.paths = []
         self.redo_paths = []
         self.last_x, self.last_y = None, None
@@ -87,14 +86,14 @@ class CanvasPeener(QWidget):
         for path in self.paths:
             first_x = path[0][0] * self.circle_diam + self.width() / 2
             first_y = path[0][1] * self.circle_diam + self.height() / 2
-            if last_x is not None and last_y is not None:
+            if self.settings['show_travel_lines'] and last_x is not None and last_y is not None:
                 self._set_pen(painter, self.TRAVEL_PEN, self.pen_width)
                 painter.drawLine(last_x, last_y, first_x, first_y)
 
             last_x = first_x
             last_y = first_y
             for pt in path[1:]:
-                if self.COLORFUL_PATHS:
+                if self.settings['colorful_paths']:
                     path_color = [int(e * 255) for e in colorsys.hsv_to_rgb(len(self.paths)*5/360, 1, 1)]
                     self._set_pen(painter, path_color, self.pen_width)
                 else:

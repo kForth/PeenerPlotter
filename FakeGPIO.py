@@ -2,13 +2,15 @@ BCM = "BCM"
 BOARD = "BOARD"
 IN = "IN"
 OUT = "OUT"
+HIGH = "HIGH"
+LOW = "LOW"
 
 def setmode(*args, **kwargs):
     print(f"GPIO.setMode args=({args}) kwargs=(kwargs)")
 
 def setup(*args, **kwargs):
     print(f"GPIO.setup args=({args}) kwargs=(kwargs)")
-    
+
 def output(*args, **kwargs):
     print(f"GPIO.output args=({args}) kwargs=(kwargs)")
 

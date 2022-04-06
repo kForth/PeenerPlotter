@@ -485,6 +485,11 @@ border: 1px solid #444;
     <string>Refresh Templates</string>
    </property>
   </action>
+  <action name="actionColor_Paths_Individually">
+   <property name="text">
+    <string>Color Paths Individually</string>
+   </property>
+  </action>
  </widget>
  <resources/>
  <connections/>
