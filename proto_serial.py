@@ -4,7 +4,7 @@ import time
 import platform
 IS_FAKE = any([e in platform.platform().lower() for e in ["macos", "windows"]])
 
-DEBUG_PRINT = False
+DEBUG_PRINT = True
 
 class ProtoSerial:
     INIT_STR = "\r\n\r\n"

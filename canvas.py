@@ -64,13 +64,13 @@ class PeenerCanvas(QWidget):
             self.update()
 
     def getCircleDiam(self):
-        return min(self.width(), self.height()) - 2 * self.MARGIN
+        return max(min(self.width(), self.height()) - 2 * self.MARGIN, 1)
 
     def paintEvent(self, e):
         painter = QPainter(self)
         self.circle_diam = self.getCircleDiam()
         self.mm_per_px = self.settings['tag_diam'] / self.circle_diam
-        self.pen_width = self.settings['line_width'] / self.mm_per_px
+        self.pen_width = min(self.settings['line_width'] / self.mm_per_px, 1)
         
         self._set_brush(painter, self.BACK_COLOR)
         self._set_pen(painter, self.BACK_COLOR, 3)
@@ -83,14 +83,32 @@ class PeenerCanvas(QWidget):
             size = (cd, hi * cd/wi) if wi / hi > 1 else (wi * cd / hi, cd)
             painter.drawImage(QRectF((self.width() - size[0]) / 2, (self.height() - size[1]) / 2, *size), img)
             self._set_brush(painter, self.CIRCLE_COLOR, Qt.NoBrush)
-            self._set_pen(painter, self.BORDER_COLOR, 3)
         else: 
             self._set_brush(painter, self.CIRCLE_COLOR)
-            self._set_pen(painter, self.BORDER_COLOR, 3)
-        painter.drawEllipse((self.width() - self.circle_diam) / 2, (self.height() - self.circle_diam) / 2, self.circle_diam, self.circle_diam)
+        outline_size = 2
+        self._set_pen(painter, self.BORDER_COLOR, outline_size)
+        painter.drawEllipse(
+            (self.width() - self.circle_diam) / 2 - outline_size,
+            (self.height() - self.circle_diam) / 2 - outline_size,
+            self.circle_diam + 2 * outline_size,
+            self.circle_diam + 2 * outline_size
+        )
 
         last_x = None
         last_y = None
+
+        if self.settings['draw_border']:
+            self._set_pen(painter, self.PEN_COLOR, self.pen_width)
+            margin = self.settings['border_margin'] / self.mm_per_px
+            painter.drawEllipse(
+                (self.width() - self.circle_diam) / 2 + margin,
+                (self.height() - self.circle_diam) / 2 + margin,
+                self.circle_diam - 2 * margin - self.pen_width,
+                self.circle_diam - 2 * margin - self.pen_width
+            )
+            last_x = self.width() / 2
+            last_y = self.height() / 2 - (self.settings['tag_diam'] / 2 - self.settings['border_margin']) / self.mm_per_px
+
         path_colours = gen_colours(len(self.paths)) if self.settings['colorful_paths'] else None
         for i, path in enumerate(self.paths):
             first_x = path[0][0] * self.circle_diam + self.width() / 2
@@ -155,6 +173,9 @@ class PeenerCanvas(QWidget):
     
     def get_last_path(self):
         return self.paths[-1]
+
+    def get_border_path(self):
+        return path
 
     def undo_path(self):
         if len(self.paths) > 0:

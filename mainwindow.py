@@ -1,17 +1,13 @@
 """
 TODO:
-- Stop Button
 - Peener stow position? (instead of just slow peening)
-- Popup window for premade designs (or better dropdown selector?)
-- Error recovery? - Just use bCNC or CNC.js
-- Canvas linewidth?
-- Implement Speeds
+- Better design selector
+- More recovery methods?
 - Tune Speeds
 - Tune Currents
-- Constant serial connection
+- Constant serial connection?
 - Machine status
-- Routine progress
-- Thread routine so GUI doesn't freeze
+- Machine position
 """
 
 import os
@@ -32,17 +28,19 @@ class MainWindow(QMainWindow):
     settings_changed = pyqtSignal(object)
 
     settings = {
+        '_version': 6,
         'port': '/dev/ttyAMA0',
         'tag_diam': 38 * 2,  # mm (engraveable area diameter)
-        'line_width': 0.5,  # mm - Peener line width
+        'line_width': 1,  # mm - Peener line width
+        'dry_run_only': False,
         'show_travel_lines': True,
         'colorful_paths': False,
-        'show_machine_pos': True
+        'show_machine_pos': True,
+        'draw_border': False,
+        'border_margin': 1
     }
 
-    PREMADE_DESIGNS = {
-        "Load Premade Design": None
-    }
+    PREMADE_DESIGNS = { "Load Premade Design": None }
 
     SETTINGS_FP = "_settings.json"
 
@@ -61,6 +59,7 @@ class MainWindow(QMainWindow):
         # Init Custom Path Drawing Widget
         self.canvas = PeenerCanvas(self.settings)
         self.canvas_label.parent().layout().replaceWidget(self.canvas_label, self.canvas)
+        self.canvas_label.hide()
 
         # Init Machine
         self.machine = Machine(self, self.settings)
@@ -81,6 +80,7 @@ class MainWindow(QMainWindow):
         # Machine Actions
         self.actionHome_Machine.triggered.connect(self.on_home_machine)
         self.actionPut_Machine_To_Sleep.triggered.connect(self.machine.connect_and_sleep)
+        self.actionWrite_Default_Settings.triggered.connect(self.write_machine_defaults)
 
         # Clamp Actions
         # self.actionOpen_Clamp.triggered.connect(self.machine.wake_and_home_clamp)
@@ -97,20 +97,21 @@ class MainWindow(QMainWindow):
         self.actionPulse_Peener_Until_Up.triggered.connect(lambda: self.machine.pulse_peener_until_up(False))
         self.actionStop_Peener.triggered.connect(lambda: self.machine.pwm.start(0))
 
+        self.actionDry_Run_Only.triggered.connect(self.update_settings_from_ui)
+
         # Canvas Buttons
         self.clearButton.clicked.connect(self.canvas.clear_canvas)
         self.undoButton.clicked.connect(self.canvas.undo_path)
         self.redoButton.clicked.connect(self.canvas.redo_path)
+        self.drawBorderButton.clicked.connect(self.update_settings_from_ui)
         self.optimizeButton.clicked.connect(self.on_optimize_paths)
         self.designSelectBox.currentTextChanged.connect(self.load_premade_design)
 
         # Control Buttons
         self.sendButton.clicked.connect(self.on_send_to_dotter)
-        self.stopButton.clicked.connect(self.machine.e_stop)
 
         # Styling
         self.sendButton.setStyleSheet("background-color : blue")
-        self.stopButton.setStyleSheet("background-color : red")
 
         # Connect Events
         self.settings_changed.connect(self.canvas.update_settings)
@@ -129,20 +130,37 @@ class MainWindow(QMainWindow):
     def load_settings_from_file(self):
         if os.path.isfile(self.SETTINGS_FP):
             with open(self.SETTINGS_FP) as settings_file:
-                self.settings.update(json.load(settings_file))
+                new_settings = json.load(settings_file)
+                new_ver = new_settings['_version'] if '_version' in new_settings.keys() else None
+                old_ver = self.settings['_version']
+                if new_ver == old_ver:
+                    self.settings.update(new_settings)
+                    self.settings_changed.emit(self.settings)
+                else:
+                    print(f"Settings File Version too old, ignoring. v{new_ver} < v{old_ver}")
 
     def save_settings_to_file(self):
         with open(self.SETTINGS_FP, "w+") as settings_file:
             json.dump(self.settings, settings_file)
 
     def update_settings_from_ui(self):
+        self.settings['dry_run_only'] = self.actionDry_Run_Only.isChecked()
         self.settings['show_travel_lines'] = self.actionShow_Travel_Lines.isChecked()
         self.settings['colorful_paths'] = self.actionShow_Colorful_Paths.isChecked()
+        self.settings['draw_border'] = self.drawBorderButton.isChecked()
+        self.settings_changed.emit(self.settings)
 
     def on_settings_changed(self):
+        self.actionDry_Run_Only.setChecked(self.settings['dry_run_only'])
         self.actionShow_Travel_Lines.setChecked(self.settings['show_travel_lines'])
         self.actionShow_Colorful_Paths.setChecked(self.settings['colorful_paths'])
+        self.drawBorderButton.setChecked(self.settings['draw_border'])
         self.settings_changed.emit(self.settings)
+
+    def write_machine_defaults(self):
+        print("Writing Default GRBL Settings")
+        with open('grbl_settings') as src:
+            self.machine.ser_send(*src.readlines())
 
     # Canvas Functions
 
@@ -198,7 +216,6 @@ class MainWindow(QMainWindow):
         self._active_process = ProcessRunnable(optimize_paths)
 
         self.optimize_path_dialog.setModal(True)
-        self.optimize_path_dialog.buttonClicked.connect(lambda: QThreadPool.globalInstance().terminate(self._active_process))
         self.optimize_path_dialog.show()
 
         self._active_process.start()
@@ -228,19 +245,19 @@ class MainWindow(QMainWindow):
         if confirm != QMessageBox.Yes:
             return
 
-        dialog = QProgressDialog(
+        self._progress_dialog = QProgressDialog(
             "Homing Machine. Please wait...",
             "Cancel",
             0, 100,
             self
         )
-        dialog.setWindowTitle("Homing Machine")
-        self.machine.report_routine_progress.connect(dialog.setValue)
-        self.machine.report_routine_status.connect(dialog.setInformativeText)
-        self.machine.routine_finished.connect(lambda e: dialog.hide())
-        dialog.canceled.connect(self.machine.e_stop)
-        dialog.setModal(True)
-        dialog.show()
+        self._progress_dialog.setWindowTitle("Homing Machine")
+        self.machine.report_routine_progress.connect(self._progress_dialog.setValue)
+        self.machine.report_routine_status.connect(lambda e: self._progress_dialog.setLabelText(f"Homing Machine: {e}"))
+        self.machine.routine_finished.connect(lambda e: self._progress_dialog.hide())
+        self._progress_dialog.canceled.connect(self.machine.e_stop)
+        self._progress_dialog.setModal(True)
+        self._progress_dialog.show()
 
         self._active_process = ProcessRunnable(self.machine.do_homing_routine)
         self._active_process.start()
@@ -263,19 +280,19 @@ class MainWindow(QMainWindow):
         if confirm != QMessageBox.Yes:
             return
 
-        dialog = QProgressDialog(
+        self._progress_dialog = QProgressDialog(
             "Peening Design. Please wait...",
             "Cancel",
             0, 100,
             self
         )
-        dialog.setWindowTitle("Peening Design")
-        self.machine.report_routine_progress.connect(lambda e: dialog.setValue(e))
-        self.machine.report_routine_status.connect(lambda e: dialog.setLabelText(f"Peening Design. Please wait...\n{e}"))
-        self.machine.routine_finished.connect(lambda e: dialog.hide())
-        dialog.canceled.connect(self.machine.e_stop)
-        dialog.setModal(True)
-        dialog.show()
+        self._progress_dialog.setWindowTitle("Peening Design")
+        self.machine.report_routine_progress.connect(lambda e: self._progress_dialog.setValue(e))
+        self.machine.report_routine_status.connect(lambda e: self._progress_dialog.setLabelText(f"Peening Design. Please wait...\n{e}"))
+        self.machine.routine_finished.connect(lambda e: self._progress_dialog.hide())
+        self._progress_dialog.canceled.connect(self.machine.e_stop)
+        self._progress_dialog.setModal(True)
+        self._progress_dialog.show()
 
         self._active_process = ProcessRunnable(self.machine.do_engraving_routine, [self.canvas.get_paths()])
         self._active_process.start()

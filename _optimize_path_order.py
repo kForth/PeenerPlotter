@@ -33,7 +33,7 @@ def optimize_path_order(paths, iters=1e5):
     iters = int(iters)
 
     print(f"Optimizing Path Order")
-    print(f"n_paths={len(paths)} {iters=}")
+    print(f"n_paths={len(paths)} iters={iters}")
     best_score = get_order_score(paths)
     best_order = list(paths)
     print(f"Initial Score: {best_score}")

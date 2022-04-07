@@ -7,11 +7,11 @@
     <x>0</x>
     <y>0</y>
     <width>555</width>
-    <height>400</height>
+    <height>325</height>
    </rect>
   </property>
   <property name="sizePolicy">
-   <sizepolicy hsizetype="Minimum" vsizetype="Minimum">
+   <sizepolicy hsizetype="Preferred" vsizetype="Preferred">
     <horstretch>0</horstretch>
     <verstretch>0</verstretch>
    </sizepolicy>
@@ -43,8 +43,8 @@
       </property>
       <property name="minimumSize">
        <size>
-        <width>200</width>
-        <height>200</height>
+        <width>250</width>
+        <height>250</height>
        </size>
       </property>
       <property name="maximumSize">
@@ -80,8 +80,8 @@ border: 1px solid #444;
           </property>
           <property name="maximumSize">
            <size>
-            <width>60</width>
-            <height>50</height>
+            <width>16777215</width>
+            <height>16777215</height>
            </size>
           </property>
           <property name="text">
@@ -91,10 +91,16 @@ border: 1px solid #444;
         </item>
         <item>
          <widget class="QPushButton" name="undoButton">
-          <property name="maximumSize">
+          <property name="minimumSize">
            <size>
             <width>60</width>
             <height>50</height>
+           </size>
+          </property>
+          <property name="maximumSize">
+           <size>
+            <width>16777215</width>
+            <height>16777215</height>
            </size>
           </property>
           <property name="sizeIncrement">
@@ -118,8 +124,8 @@ border: 1px solid #444;
           </property>
           <property name="maximumSize">
            <size>
-            <width>60</width>
-            <height>50</height>
+            <width>16777215</width>
+            <height>16777215</height>
            </size>
           </property>
           <property name="text">
@@ -127,22 +133,52 @@ border: 1px solid #444;
           </property>
          </widget>
         </item>
+       </layout>
+      </item>
+      <item>
+       <layout class="QHBoxLayout" name="horizontalLayout_3">
+        <property name="topMargin">
+         <number>0</number>
+        </property>
         <item>
-         <widget class="QPushButton" name="optimizeButton">
+         <widget class="QPushButton" name="drawBorderButton">
           <property name="minimumSize">
            <size>
-            <width>60</width>
+            <width>120</width>
+            <height>50</height>
+           </size>
+          </property>
+          <property name="text">
+           <string>Toggle Border</string>
+          </property>
+          <property name="checkable">
+           <bool>true</bool>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QPushButton" name="optimizeButton">
+          <property name="sizePolicy">
+           <sizepolicy hsizetype="Minimum" vsizetype="Fixed">
+            <horstretch>0</horstretch>
+            <verstretch>0</verstretch>
+           </sizepolicy>
+          </property>
+          <property name="minimumSize">
+           <size>
+            <width>100</width>
             <height>50</height>
            </size>
           </property>
           <property name="maximumSize">
            <size>
-            <width>60</width>
-            <height>50</height>
+            <width>16777215</width>
+            <height>16777215</height>
            </size>
           </property>
           <property name="text">
-           <string>Optimize</string>
+           <string>Optimize
+Path Order</string>
           </property>
          </widget>
         </item>
@@ -168,6 +204,12 @@ border: 1px solid #444;
           <horstretch>0</horstretch>
           <verstretch>0</verstretch>
          </sizepolicy>
+        </property>
+        <property name="minimumSize">
+         <size>
+          <width>120</width>
+          <height>30</height>
+         </size>
         </property>
         <property name="iconSize">
          <size>
@@ -201,7 +243,7 @@ border: 1px solid #444;
        <widget class="QPushButton" name="sendButton">
         <property name="minimumSize">
          <size>
-          <width>0</width>
+          <width>120</width>
           <height>40</height>
          </size>
         </property>
@@ -219,28 +261,6 @@ border: 1px solid #444;
         </property>
        </widget>
       </item>
-      <item>
-       <widget class="QPushButton" name="stopButton">
-        <property name="minimumSize">
-         <size>
-          <width>0</width>
-          <height>40</height>
-         </size>
-        </property>
-        <property name="maximumSize">
-         <size>
-          <width>16777215</width>
-          <height>40</height>
-         </size>
-        </property>
-        <property name="styleSheet">
-         <string notr="true"/>
-        </property>
-        <property name="text">
-         <string>Stop</string>
-        </property>
-       </widget>
-      </item>
      </layout>
     </item>
    </layout>
@@ -251,7 +271,7 @@ border: 1px solid #444;
      <x>0</x>
      <y>0</y>
      <width>555</width>
-     <height>22</height>
+     <height>24</height>
     </rect>
    </property>
    <widget class="QMenu" name="menuFile">
@@ -306,11 +326,13 @@ border: 1px solid #444;
      </property>
      <addaction name="actionHome_Machine"/>
      <addaction name="actionPut_Machine_To_Sleep"/>
+     <addaction name="actionWrite_Default_Settings"/>
     </widget>
     <addaction name="menuMachine"/>
     <addaction name="menuClamp"/>
     <addaction name="menuPizza_Tray"/>
     <addaction name="menuPeener_Motor"/>
+    <addaction name="actionDry_Run_Only"/>
    </widget>
    <addaction name="menuFile"/>
    <addaction name="menuEdit"/>
@@ -412,6 +434,19 @@ border: 1px solid #444;
   <action name="actionPut_Machine_To_Sleep">
    <property name="text">
     <string>Put to Sleep</string>
+   </property>
+  </action>
+  <action name="actionDry_Run_Only">
+   <property name="checkable">
+    <bool>true</bool>
+   </property>
+   <property name="text">
+    <string>Dry Run Only</string>
+   </property>
+  </action>
+  <action name="actionWrite_Default_Settings">
+   <property name="text">
+    <string>Write Default Settings</string>
    </property>
   </action>
  </widget>

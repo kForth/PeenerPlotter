@@ -2,6 +2,7 @@
 import time
 import platform
 import traceback
+import multiprocessing
 
 if any([e in platform.platform().lower() for e in ["macos", "windows"]]):
     import FakeGPIO as GPIO
@@ -38,14 +39,14 @@ class Machine(QObject):
     PULSE_DELAY = 0.3 # Seconds to turn motor on when trying to lift
 
     # Gantry Settings
-    GANTRY_PARK_POS = (0, 0, 0)
+    GANTRY_PARK_POS = (-WORK_OFFSET[0], -WORK_OFFSET[1], 0)
     GANTRY_TRAVEL_SPEED = 800
     GANTRY_PEEN_SPEED = 500
 
     # Clamp Settings
     CLAMP_OPEN_POS = 0
     CLAMP_PARTIAL_POS = 6
-    CLAMP_CLOSE_POS = 10.5
+    CLAMP_CLOSE_POS = 11.5
 
     # BCM Pin Numbering
     PEENER_PIN = 12
@@ -74,20 +75,15 @@ class Machine(QObject):
     GRBL_IDLE_HOLD_OFF = "$1=10"
     GRBL_SLEEP = "$SLP"
     GRBL_SET_TAG_OFFSET = f"G92 X-{WORK_OFFSET[0]} Y-{WORK_OFFSET[1]}"
-    GRBL_MACHINE_REL_COORDS = "G52 X0 Y0"  # Coordinates relative to machine origin
+    # GRBL_MACHINE_REL_COORDS = "G52 X0 Y0"  # Coordinates relative to machine origin
     GRBL_TAG_REL_CORRDS = "G54"  # Coordiantes releative to tag center
 
-    GRBL_TRAVEL_XYZ = lambda self, x, y, z: f"G0 X{x} Y{y} Z{z}"
-    GRBL_TRAVEL_XY = lambda self, x, y: f"G0 X{x} Y{y}"
-    GRBL_TRAVEL_X = lambda self, x: f"G0 X{x}"
-    GRBL_TRAVEL_Y = lambda self, y: f"G0 Y{y}"
-    GRBL_TRAVEL_Z = lambda self, z: f"G0 Z{z}"
+    GRBL_TRAVEL_XYZ = lambda self, x, y, z: f"G0 X{x} Y{y} Z{z}"  # F{self.GANTRY_TRAVEL_SPEED}"
+    GRBL_TRAVEL_XY = lambda self, x, y: f"G0 X{x} Y{y}"  # F{self.GANTRY_TRAVEL_SPEED}"
+    GRBL_TRAVEL_X = lambda self, x: f"G0 X{x}"  # F{self.GANTRY_TRAVEL_SPEED}"
+    GRBL_TRAVEL_Y = lambda self, y: f"G0 Y{y}"  # F{self.GANTRY_TRAVEL_SPEED}"
+    GRBL_TRAVEL_Z = lambda self, z: f"G0 Z{z}"  # F{self.GANTRY_TRAVEL_SPEED}"
     GRBL_PEEN_XY = lambda self, x, y: f"G1 X{x} Y{y} F{self.GANTRY_PEEN_SPEED}"  # f"G0 X{x} Y{y}"
-
-    GRBL_PARK_ALL = GRBL_TRAVEL_XYZ(None, *GANTRY_PARK_POS)
-    GRBL_CLOSE_CLAMP = GRBL_TRAVEL_Z(None, CLAMP_CLOSE_POS)
-    GRBL_OPEN_CLAMP = GRBL_TRAVEL_Z(None, CLAMP_OPEN_POS)
-    GRBL_OPEN_CLAMP_PARTIAL = GRBL_TRAVEL_Z(None, CLAMP_PARTIAL_POS)
 
     def __init__(self, window, settings):
         QObject.__init__(self)
@@ -95,6 +91,7 @@ class Machine(QObject):
         self.settings = settings
 
         # Init Util Variables
+        self._routine_name = "GRBL"
         self._routine_progress = 0
         self._should_stop = False
 
@@ -108,7 +105,7 @@ class Machine(QObject):
         # Setup Peener motor PWM Output
         GPIO.setup(self.PEENER_PIN, GPIO.OUT)
         self.pwm = GPIO.PWM(self.PEENER_PIN, 1000)
-        self.pwm.start(0)
+        self.set_peener_speed(0)
 
         # Setup Pizza Tray Pins
         GPIO.setup(self.TRAY_LIMIT_PIN, GPIO.IN)
@@ -203,6 +200,7 @@ class Machine(QObject):
                         QMessageBox.Ok
                     ], {}
                 )
+                self._routine_name = "GRBL"
                 return result
             return inner
         return wrapper
@@ -235,7 +233,7 @@ class Machine(QObject):
 
                 # result = ex
             finally:
-                self.pwm.start(0)
+                self.set_peener_speed(0)
                 self.ser.send(self.GRBL_IDLE_HOLD_OFF)
                 self._sleep()
                 self._disconnect_if_wasnt()
@@ -247,7 +245,7 @@ class Machine(QObject):
     def e_stop(self):
         print("E-Stop")
         self._should_stop = True
-        self.pwm.start(0)  # Turn off Peener
+        self.set_peener_speed(0, 0)
         self._connect(False)
         self.ser.send([
             self.GRBL_HOLD,
@@ -257,8 +255,9 @@ class Machine(QObject):
 
     def get_machine_status(self):
         self._connect(False)
-        yield self.ser.send(self.GRBL_STATUS)
+        status =  self.ser.send(self.GRBL_STATUS)
         self._disconnect_if_wasnt()
+        return status
 
     def _wait_for_idle(self):
         print("Waiting for Idle")
@@ -270,7 +269,7 @@ class Machine(QObject):
     # Tray Util Functions
 
     def spin_tray(self, revolutions=1, direction=TRAY_CCW):
-        print(f"Spinning Tray {revolutions=} {direction=}")
+        print(f"Spinning Tray revs={revolutions} dir={direction}")
         GPIO.output(self.TRAY_DIR_PIN, direction)
         for _ in range(int(self.TRAY_REV_DIST * revolutions)):
             GPIO.output(self.TRAY_STEP_PIN, GPIO.HIGH)
@@ -317,12 +316,15 @@ class Machine(QObject):
 
     # Peener Util Functions
 
+    def set_peener_speed(self, speed, dwell=None):
+        if not self.settings['dry_run_only']:
+            self.pwm.start(speed)
+            time.sleep(self.DWELL if dwell is None else dwell)
+
     def pulse_peener(self):
         print("Pulsing Peener")
-        self.pwm.start(self.PEEN_HIGH)  # Briefly turn on peener motor
-        time.sleep(self.PULSE_DELAY)
-        self.pwm.start(0)  # Turn back off
-        time.sleep(self.PULSE_DELAY * 2)  # Wait for deceleration
+        self.set_peener_speed(self.PEEN_HIGH, self.PULSE_DELAY) # Briefly turn on peener motor
+        self.set_peener_speed(0, self.PULSE_DELAY * 2)  # Wait for deceleration
 
     def pulse_peener_until_up(self, err_on_cancel=True):
         self.pulse_peener()
@@ -379,23 +381,25 @@ class Machine(QObject):
         self._set_progress(100, "Homing Done")
         time.sleep(1)
         return True
-    
+
     @__as_routine("Engraving Routine")
     @__with_connection
     def do_engraving_routine(self, paths):
         self._set_progress(6, "Homing Machine")
-        self.ser.send(self.GRBL_HOME_ALL)
+        self.ser.send([
+            self.GRBL_IDLE_HOLD_ON,
+            self.GRBL_HOME_ALL
+        ])
         self._wait_for_idle()
         self._set_progress(7, "Homing Done")
 
         self._set_progress(9, "Initializing Motion")
         self.ser.send([
             self.GRBL_SET_TAG_OFFSET,
-            self.GRBL_IDLE_HOLD_ON,
             "G17",  # XY Plane
             "G21",  # mm mode
             "G90",  # Absolute coord mode
-            self.GRBL_MACHINE_REL_COORDS,
+            self.GRBL_TAG_REL_CORRDS,
             self.GRBL_ENABLE,
             # self.GRBL_TRAVEL_Z(1)  # Move clamp up a litte (really just to activate servos to let tray spin)
         ])
@@ -405,12 +409,11 @@ class Machine(QObject):
         self.load_tag()
 
         self._set_progress(12, "Clamping Tag")
-        self.ser.send(self.GRBL_CLOSE_CLAMP)
+        self.ser.send(self.GRBL_TRAVEL_Z(self.CLAMP_CLOSE_POS))
         self._wait_for_idle()
 
         self._set_progress(15, "Moving To Tag")
         self.ser.send([
-            self.GRBL_TAG_REL_CORRDS,
             self.GRBL_TRAVEL_XY(*self.PRE_ENTRY_POINT),  # Move towards tag
             self.GRBL_TRAVEL_XY(*self.ENTRY_POINT)  # Move into tag area
         ])
@@ -420,21 +423,35 @@ class Machine(QObject):
         scale = self.settings['tag_diam']
         scale_pt = lambda pts: [round(e * scale, 2) for e in pts] 
 
-        prog_after_paths = 80
-        prog_per_path = (prog_after_paths - self._routine_progress) / (len(paths) + 1)
-        for i, path in enumerate(paths):
-            self._set_status(f"Drawing Path #{i}")
+        if self.settings['draw_border']:
+            border_rad = self.settings['tag_diam']/2 - self.settings['border_margin']
+            if border_rad > 0:
+                self._set_progress(18, "Drawing Border")
+                self.ser.send(f"G0 X0 Y{-border_rad}")  # Move to outer edge of border
+                self._wait_for_idle()
 
-            print("  Moving to path start")
+                print("  Setting Peener to High Speed")
+                self.set_peener_speed(self.PEEN_HIGH)  # Set Peener to peen speed
+
+                self.ser.send(f"G2 X0 Y{-border_rad} I0 J{border_rad}")  # Draw outer circle
+                self._wait_for_idle()
+                self._set_progress(20, "Done Border")
+
+                print("  Setting Peener to Low Speed")
+                self.set_peener_speed(self.PEEN_LOW)  # Set Peener to travel speed
+
+        num_paths = len(paths)
+        prog_after_paths = 80
+        prog_per_path = min((prog_after_paths - self._routine_progress) / num_paths, 1)
+        for i, path in enumerate(paths):
+            self._increment_progress(prog_per_path - 1, f"Starting Path #{i + 1} of {num_paths}")
             self.ser.send(self.GRBL_TRAVEL_XY(*scale_pt(path[0])))  # Move to first position
             self._wait_for_idle()
-            self._increment_progress(prog_per_path)
 
             print("  Setting Peener to High Speed")
-            self.pwm.start(self.PEEN_HIGH)  # Set Peener to peen speed
-            time.sleep(self.DWELL)
+            self.set_peener_speed(self.PEEN_HIGH)  # Set Peener to peen speed
 
-            print("  Drawing Path")
+            self._increment_progress(1, f"Drawing Path #{i + 1} of {num_paths}")
             self.ser.send([
                 self.GRBL_PEEN_XY(*scale_pt(pt))  # Draw each point of the path
                 for pt in path[1:]  # Skip the first point because we're already there
@@ -442,32 +459,34 @@ class Machine(QObject):
             self._wait_for_idle()
 
             print("  Done Path, Setting Peener to Low Speed")
-            self.pwm.start(self.PEEN_LOW)  # Set Peener to travel speed
-            time.sleep(self.DWELL)
+            self.set_peener_speed(self.PEEN_LOW)  # Set Peener to travel speed
 
         self._set_progress(prog_after_paths, "Stopping Peener")
-        self.pwm.start(0)  # Turn off Peener
-        time.sleep(self.DWELL)
+        self.set_peener_speed(0)  # Turn off Peener
 
         self._set_progress(82, "Lifting Peener")
         self.pulse_peener_until_up()
 
-        self._set_progress(85, "Moving Off Tag")
+        self._set_progress(85, "Parking Machine")
         self.ser.send([
             self.GRBL_TRAVEL_XY(*self.ENTRY_POINT),  # Move back to entry point
             self.GRBL_TRAVEL_XY(*self.PRE_ENTRY_POINT),  # Move out of tag area
-            self.GRBL_OPEN_CLAMP_PARTIAL
+            self.GRBL_TRAVEL_Z(self.CLAMP_PARTIAL_POS)
         ])
         self._wait_for_idle()
+        self._set_progress(90, "Parking Machine")
+        self.ser.send(self.GRBL_TRAVEL_XYZ(*self.GANTRY_PARK_POS))  # Park Gantry
 
-        self._set_progress(90, "Dispensing Tag")
+        self._set_progress(95, "Dispensing Tag")
         self.dispense_tag()
 
-        self._set_progress(95, "Parking Machine")
-        self.ser.send(self.GRBL_PARK_ALL)  # Park Gantry
         self._wait_for_idle()
-
         self._set_progress(100, "Done")
+    
+    @__with_connection
+    def ser_send(self, *lines):
+        for line in lines:
+            self.ser.send(line)
 
 class _CancelRoutineExpcetion(Exception):
     pass
