@@ -5,6 +5,8 @@ import colorsys
 import functools
 from random import randint, shuffle
 
+import numpy as np
+
 def serial_ports():
     """ Lists serial port names
 
@@ -78,6 +80,25 @@ def debug_func(func):
         print(f"{func.__name__!r} returned {value!r}")           # 4
         return value
     return wrapper_debug
+
+def angle_between(v1, v2):
+    """ Returns the angle in radians between vectors 'v1' and 'v2'::
+
+            >>> angle_between((1, 0, 0), (0, 1, 0))
+            1.5707963267948966
+            >>> angle_between((1, 0, 0), (1, 0, 0))
+            0.0
+            >>> angle_between((1, 0, 0), (-1, 0, 0))
+            3.141592653589793
+    """
+
+    def unit_vector(vector):
+        """ Returns the unit vector of the vector.  """
+        return vector / np.linalg.norm(vector)
+
+    v1_u = unit_vector(v1)
+    v2_u = unit_vector(v2)
+    return np.arccos(np.clip(np.dot(v1_u, v2_u), -1.0, 1.0))
 
 if __name__ == "__main__":
     print(serial_ports())

@@ -4,12 +4,17 @@ import json
 from PyQt5.QtCore import Qt, QRect, QRectF, pyqtSignal, QObject
 from PyQt5.QtWidgets import QWidget
 from PyQt5.QtGui import QPainter, QColor, QPen, QBrush, QImage
+import numpy as np
+
+from scipy import interpolate
+# from statsmodels.nonparametric.kernel_regression import KernelReg
 
 from _optimize_path_order import optimize_path_order
+from _min_enclosing_circle import make_circle
 from util import *
 
 class PeenerCanvas(QWidget):
-    path_change_event = pyqtSignal(object)
+    # path_change_event = pyqtSignal(object)
 
     FLIP_X = True
     FLIP_Y = True
@@ -70,7 +75,7 @@ class PeenerCanvas(QWidget):
         painter = QPainter(self)
         self.circle_diam = self.getCircleDiam()
         self.mm_per_px = self.settings['tag_diam'] / self.circle_diam
-        self.pen_width = min(self.settings['line_width'] / self.mm_per_px, 1)
+        self.pen_width = max(self.settings['line_width'] / self.mm_per_px, 1)
         
         self._set_brush(painter, self.BACK_COLOR)
         self._set_pen(painter, self.BACK_COLOR, 3)
@@ -143,7 +148,7 @@ class PeenerCanvas(QWidget):
 
     def set_paths(self, paths):
         self.paths = paths
-        self.path_change_event.emit(self.paths)
+        # self.path_change_event.emit(self.paths)
 
     def get_paths(self):
         return [[
@@ -181,32 +186,68 @@ class PeenerCanvas(QWidget):
         if len(self.paths) > 0:
             self.redo_paths.append(self.paths.pop())
             self.update()
-            self.path_change_event.emit(self.paths)
+            # self.path_change_event.emit(self.paths)
 
     def redo_path(self):
         if len(self.redo_paths) > 0:
             self.paths.append(self.redo_paths.pop())
             self.update()
-            self.path_change_event.emit(self.paths)
+            # self.path_change_event.emit(self.paths)
 
     def clear_paths(self):
+        self.redo_paths = self.paths
         self.paths = []
         self.update()
-        self.path_change_event.emit(self.paths)
+        # self.path_change_event.emit(self.paths)
 
     def add_path(self, *paths):
         self.paths += paths
-        self.path_change_event.emit(self.paths)
+        # self.path_change_event.emit(self.paths)
 
     def add_path_pt(self, pt, path_index=-1):
         self.paths[path_index].append(pt)
-        self.path_change_event.emit(self.paths)
+        # self.path_change_event.emit(self.paths)
 
     def optimize_path_order(self, iters=1e5):
         print("Optimizing Canvas Path Order")
         self.paths = optimize_path_order(self.paths, iters)
         self.update()
-        self.path_change_event.emit(self.paths)
+        # self.path_change_event.emit(self.paths)
+
+    def auto_size_paths(self):
+        print("Auto Sizing Paths")
+        (circle_x, circle_y, circle_r) = make_circle(sum(self.paths, start=[]))
+        t_paths = []
+        for path in self.paths:
+            t_path = []
+            for pt in path:
+                t_path.append([
+                    (pt[0] - circle_x) * (0.49 / circle_r),
+                    (pt[1] - circle_y) * (0.49 / circle_r)
+                ])
+            t_paths.append(t_path)
+        self.paths = t_paths
+        self.update()
+        print("Done")
+
+    def smooth_paths(self):
+        print("Smoothing Paths")
+        s_paths = []
+        for path in self.paths:
+            lp = path[0]
+            s_path = path[:1]
+            for i, pt in enumerate(path[1:-1]):
+                dx = abs(pt[0] - lp[0])
+                dy = abs(pt[1] - lp[1])
+                dist = (dx**2 + dy**2)**(1/2)
+                if dist > 0.01:
+                    s_path.append(pt)
+                    lp = pt
+            s_path += path[-1:]
+            s_paths.append(s_path)
+        self.paths = s_paths
+        self.update()
+        print("Done")
 
     def clear_canvas(self):
         self.clear_paths()
@@ -227,10 +268,13 @@ class PeenerCanvas(QWidget):
         brush.setStyle(style)
         painter.setBrush(brush)
 
-    def _event_in_circle(self, e):
-        dx = abs(self.width() / 2 - e.x())
-        dy = abs(self.height() / 2 - e.y())
-        return (dx**2 + dy**2)**(1/2) < (self.getCircleDiam() / 2)
+    def _pt_dist(self, pt):
+        dx = abs(self.width() / 2 - pt.x())
+        dy = abs(self.height() / 2 - pt.y())
+        return (dx**2 + dy**2)**(1/2)
+
+    def _event_in_circle(self, pt):
+        return self._pt_dist(pt) < (self.getCircleDiam() / 2)
     
     def mousePressEvent(self, e):
         if self._event_in_circle(e):

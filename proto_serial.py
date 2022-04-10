@@ -64,13 +64,18 @@ class ProtoSerial:
                 if DEBUG_PRINT:
                     print(f'Sending: {self._escape_str(line)}')
                 self.ser.write((f'{l}\n').encode())
-                if wait_for_resp:
-                    while not self.ser.in_waiting:
-                        time.sleep(0.1)
-                    while self.ser.in_waiting:
-                        resps += [self.ser.readline().decode().strip()]
-                        if DEBUG_PRINT:
-                            print(f'  Recv: {self._escape_str(resps[-1])}')
+                time.sleep(0.05)
+                # if wait_for_resp:
+                for _ in range(5):
+                    time.sleep(0.01)
+                    if self.ser.in_waiting:
+                        break
+                    # while not self.ser.in_waiting:
+                    #     time.sleep(0.1)
+                while self.ser.in_waiting:
+                    resps += [self.ser.readline().decode().strip()]
+                    if DEBUG_PRINT:
+                        print(f'  Recv: {self._escape_str(resps[-1])}')
             return resps
         return False
 

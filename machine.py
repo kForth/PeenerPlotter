@@ -46,7 +46,7 @@ class Machine(QObject):
     # Clamp Settings
     CLAMP_OPEN_POS = 0
     CLAMP_PARTIAL_POS = 6
-    CLAMP_CLOSE_POS = 11.5
+    CLAMP_CLOSE_POS = 11.4
 
     # BCM Pin Numbering
     PEENER_PIN = 12
@@ -64,7 +64,7 @@ class Machine(QObject):
     # GRBL Commands
     GRBL_RESET = chr(24)
     GRBL_ENABLE = "$X"
-    GRBL_HOLD = "!"
+    GRBL_CYCLEHOLD = "!"
     GRBL_HOME_ALL = "$H"
     GRBL_HOME_X = "$HX"
     GRBL_HOME_Y = "$HY"
@@ -93,7 +93,6 @@ class Machine(QObject):
         # Init Util Variables
         self._routine_name = "GRBL"
         self._routine_progress = 0
-        self._should_stop = False
 
         # Init Serial Connection Manager
         self.ser = ProtoSerial()
@@ -115,11 +114,6 @@ class Machine(QObject):
 
     def update_settings(self, settings):
         self.settings = settings
-    
-    def _check_should_stop(self):
-        if self._should_stop:
-            self._should_stop = False
-            raise _CancelRoutineExpcetion()
 
     def _connect(self, enable=True):
         self._was_connected = self.ser.is_connected()
@@ -128,11 +122,9 @@ class Machine(QObject):
             self.ser.connect(self.settings['port'])
 
             self._set_status("Initializing GRBL")
-            self.ser.send(self.GRBL_RESET, False)
-            self.ser.send([
-                self.GRBL_PRINT_SETTINGS,
-                self.GRBL_IDLE_HOLD_OFF
-            ])
+            self.ser.send(self.GRBL_RESET)
+            self.ser.send(self.GRBL_PRINT_SETTINGS)
+            self.ser.send(self.GRBL_IDLE_HOLD_OFF)
             if(enable):
                 self.ser.send(self.GRBL_ENABLE)
             time.sleep(self.DWELL)
@@ -174,14 +166,12 @@ class Machine(QObject):
         self.report_routine_progress.emit(self._routine_progress)
         if status:
             self._set_status(status)
-        self._check_should_stop()
 
     def _set_status(self, status):
         self._routine_status = status
         status_str = f"{self._routine_name}: {self._routine_status}"
         print(status_str)
         self.report_routine_status.emit(status_str)
-        self._check_should_stop()
 
     # Decorators
 
@@ -214,7 +204,7 @@ class Machine(QObject):
                 self._connect()
 
                 self._set_progress(2, "Resetting GRBL")
-                self.ser.send(self.GRBL_RESET, False)
+                self.ser.send(self.GRBL_RESET)
 
                 self._set_progress(5, "GRBL Ready")
                 result = func(self, *args, **kwargs)
@@ -244,14 +234,11 @@ class Machine(QObject):
 
     def e_stop(self):
         print("E-Stop")
-        self._should_stop = True
         self.set_peener_speed(0, 0)
         self._connect(False)
-        self.ser.send([
-            self.GRBL_HOLD,
-            self.GRBL_IDLE_HOLD_OFF,
-            self.GRBL_SLEEP
-        ])
+        self.ser.send(self.GRBL_CYCLEHOLD, False)
+        self.ser.send(self.GRBL_IDLE_HOLD_OFF)
+        self.ser.send(self.GRBL_SLEEP)
 
     def get_machine_status(self):
         self._connect(False)
@@ -386,10 +373,9 @@ class Machine(QObject):
     @__with_connection
     def do_engraving_routine(self, paths):
         self._set_progress(6, "Homing Machine")
-        self.ser.send([
-            self.GRBL_IDLE_HOLD_ON,
-            self.GRBL_HOME_ALL
-        ])
+
+        self.ser.send(self.GRBL_IDLE_HOLD_ON)
+        self.ser.send(self.GRBL_HOME_ALL)
         self._wait_for_idle()
         self._set_progress(7, "Homing Done")
 
@@ -487,6 +473,51 @@ class Machine(QObject):
     def ser_send(self, *lines):
         for line in lines:
             self.ser.send(line)
+
+    @__as_routine("Spin Tray Routine")
+    @__with_connection
+    def spin_tray_routine(self, revolutions, direction):
+        self.ser.send(self.GRBL_IDLE_HOLD_ON)
+        self.ser.send(self.GRBL_ENABLE)
+        self.ser.send(self.GRBL_HOME_Z)
+        self.spin_tray(revolutions, direction)
+        self.ser.send(self.GRBL_IDLE_HOLD_OFF)
+
+    @__as_routine("Dispense Tag Routine")
+    @__with_connection
+    def dispense_tag_routine(self):
+        # TODO: Energize steppers?
+        self.ser.send(self.GRBL_IDLE_HOLD_ON)
+        self.ser.send(self.GRBL_ENABLE)
+        self.ser.send(self.GRBL_HOME_Z)
+        self.dispense_tag()
+        self.ser.send(self.GRBL_IDLE_HOLD_OFF)
+
+    @__with_connection
+    def open_clamp(self):
+        self.ser.send([
+            self.GRBL_ENABLE,
+            self.GRBL_TRAVEL_Z(self.CLAMP_OPEN_POS)
+        ])
+
+    @__with_connection
+    def close_clamp(self):
+        self.ser.send([
+            self.GRBL_ENABLE,
+            self.GRBL_TRAVEL_Z(self.CLAMP_CLOSE_POS)
+        ])
+
+    @__with_connection
+    def home_clamp(self):
+        self.ser.send(self.GRBL_HOME_Z)
+
+    @__with_connection
+    def home_x(self):
+        self.ser.send(self.GRBL_HOME_X)
+
+    @__with_connection
+    def home_y(self):
+        self.ser.send(self.GRBL_HOME_Y)
 
 class _CancelRoutineExpcetion(Exception):
     pass

@@ -68,10 +68,28 @@ border: 1px solid #444;
     </item>
     <item>
      <layout class="QVBoxLayout" name="verticalLayout">
+      <property name="leftMargin">
+       <number>5</number>
+      </property>
+      <property name="topMargin">
+       <number>5</number>
+      </property>
+      <property name="rightMargin">
+       <number>5</number>
+      </property>
+      <property name="bottomMargin">
+       <number>5</number>
+      </property>
       <item>
        <layout class="QHBoxLayout" name="horizontalLayout">
         <item>
          <widget class="QPushButton" name="clearButton">
+          <property name="sizePolicy">
+           <sizepolicy hsizetype="Preferred" vsizetype="Minimum">
+            <horstretch>0</horstretch>
+            <verstretch>0</verstretch>
+           </sizepolicy>
+          </property>
           <property name="minimumSize">
            <size>
             <width>60</width>
@@ -84,6 +102,9 @@ border: 1px solid #444;
             <height>16777215</height>
            </size>
           </property>
+          <property name="styleSheet">
+           <string notr="true"/>
+          </property>
           <property name="text">
            <string>Clear</string>
           </property>
@@ -91,6 +112,12 @@ border: 1px solid #444;
         </item>
         <item>
          <widget class="QPushButton" name="undoButton">
+          <property name="sizePolicy">
+           <sizepolicy hsizetype="Preferred" vsizetype="Minimum">
+            <horstretch>0</horstretch>
+            <verstretch>0</verstretch>
+           </sizepolicy>
+          </property>
           <property name="minimumSize">
            <size>
             <width>60</width>
@@ -116,6 +143,12 @@ border: 1px solid #444;
         </item>
         <item>
          <widget class="QPushButton" name="redoButton">
+          <property name="sizePolicy">
+           <sizepolicy hsizetype="Preferred" vsizetype="Minimum">
+            <horstretch>0</horstretch>
+            <verstretch>0</verstretch>
+           </sizepolicy>
+          </property>
           <property name="minimumSize">
            <size>
             <width>60</width>
@@ -142,14 +175,21 @@ border: 1px solid #444;
         </property>
         <item>
          <widget class="QPushButton" name="drawBorderButton">
+          <property name="sizePolicy">
+           <sizepolicy hsizetype="Preferred" vsizetype="Minimum">
+            <horstretch>0</horstretch>
+            <verstretch>0</verstretch>
+           </sizepolicy>
+          </property>
           <property name="minimumSize">
            <size>
-            <width>120</width>
+            <width>70</width>
             <height>50</height>
            </size>
           </property>
           <property name="text">
-           <string>Toggle Border</string>
+           <string>Toggle
+Border</string>
           </property>
           <property name="checkable">
            <bool>true</bool>
@@ -157,16 +197,44 @@ border: 1px solid #444;
          </widget>
         </item>
         <item>
+         <widget class="QPushButton" name="autoSizeButton">
+          <property name="minimumSize">
+           <size>
+            <width>60</width>
+            <height>50</height>
+           </size>
+          </property>
+          <property name="text">
+           <string>Auto
+Size</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QPushButton" name="smoothPathsButton">
+          <property name="minimumSize">
+           <size>
+            <width>0</width>
+            <height>50</height>
+           </size>
+          </property>
+          <property name="text">
+           <string>Smooth
+Paths</string>
+          </property>
+         </widget>
+        </item>
+        <item>
          <widget class="QPushButton" name="optimizeButton">
           <property name="sizePolicy">
-           <sizepolicy hsizetype="Minimum" vsizetype="Fixed">
+           <sizepolicy hsizetype="Preferred" vsizetype="Minimum">
             <horstretch>0</horstretch>
             <verstretch>0</verstretch>
            </sizepolicy>
           </property>
           <property name="minimumSize">
            <size>
-            <width>100</width>
+            <width>90</width>
             <height>50</height>
            </size>
           </property>
@@ -178,29 +246,16 @@ border: 1px solid #444;
           </property>
           <property name="text">
            <string>Optimize
-Path Order</string>
+Order</string>
           </property>
          </widget>
         </item>
        </layout>
       </item>
       <item>
-       <spacer name="verticalSpacer">
-        <property name="orientation">
-         <enum>Qt::Vertical</enum>
-        </property>
-        <property name="sizeHint" stdset="0">
-         <size>
-          <width>20</width>
-          <height>40</height>
-         </size>
-        </property>
-       </spacer>
-      </item>
-      <item>
        <widget class="QComboBox" name="designSelectBox">
         <property name="sizePolicy">
-         <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
+         <sizepolicy hsizetype="Preferred" vsizetype="Expanding">
           <horstretch>0</horstretch>
           <verstretch>0</verstretch>
          </sizepolicy>
@@ -211,11 +266,20 @@ Path Order</string>
           <height>30</height>
          </size>
         </property>
+        <property name="maxVisibleItems">
+         <number>10</number>
+        </property>
+        <property name="sizeAdjustPolicy">
+         <enum>QComboBox::AdjustToContents</enum>
+        </property>
         <property name="iconSize">
          <size>
-          <width>200</width>
-          <height>200</height>
+          <width>24</width>
+          <height>24</height>
          </size>
+        </property>
+        <property name="frame">
+         <bool>true</bool>
         </property>
         <item>
          <property name="text">
@@ -241,6 +305,12 @@ Path Order</string>
       </item>
       <item>
        <widget class="QPushButton" name="sendButton">
+        <property name="sizePolicy">
+         <sizepolicy hsizetype="Preferred" vsizetype="MinimumExpanding">
+          <horstretch>0</horstretch>
+          <verstretch>0</verstretch>
+         </sizepolicy>
+        </property>
         <property name="minimumSize">
          <size>
           <width>120</width>
@@ -325,8 +395,13 @@ Path Order</string>
       <string>Machine</string>
      </property>
      <addaction name="actionHome_Machine"/>
+     <addaction name="actionHome_X"/>
+     <addaction name="actionHome_Y"/>
+     <addaction name="actionHome_Clamp"/>
+     <addaction name="separator"/>
      <addaction name="actionPut_Machine_To_Sleep"/>
      <addaction name="actionWrite_Default_Settings"/>
+     <addaction name="separator"/>
     </widget>
     <addaction name="menuMachine"/>
     <addaction name="menuClamp"/>
@@ -428,7 +503,7 @@ Path Order</string>
   </action>
   <action name="actionHome_Machine">
    <property name="text">
-    <string>Home Machine</string>
+    <string>Home All Axes</string>
    </property>
   </action>
   <action name="actionPut_Machine_To_Sleep">
@@ -447,6 +522,21 @@ Path Order</string>
   <action name="actionWrite_Default_Settings">
    <property name="text">
     <string>Write Default Settings</string>
+   </property>
+  </action>
+  <action name="actionHome_X">
+   <property name="text">
+    <string>Home X (Left/Right)</string>
+   </property>
+  </action>
+  <action name="actionHome_Y">
+   <property name="text">
+    <string>Home Y (Fwd/Back)</string>
+   </property>
+  </action>
+  <action name="actionHome_Clamp">
+   <property name="text">
+    <string>Home Z (Clamp)</string>
    </property>
   </action>
  </widget>
