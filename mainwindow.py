@@ -224,7 +224,7 @@ class MainWindow(QMainWindow):
         if self.canvas.get_paths():
             filepath = QFileDialog.getSaveFileName(self, 'Save Custom Design', './designs', "JSON file (*.json)")
             if filepath:
-                filepath = filepath[0].lower()
+                filepath = filepath[0]
                 if not filepath.lower().endswith(".json"):
                     filepath += ".json"
                 self.canvas.save_to_file(filepath)
@@ -232,7 +232,7 @@ class MainWindow(QMainWindow):
     def load_design(self):
         filepath = QFileDialog.getOpenFileName(self, 'Open Design', './designs', "JSON file (*.json)")
         filepath = filepath[0]
-        if filepath and os.path.isfile(filepath) and filepath.endswith('.json'):
+        if filepath and os.path.isfile(filepath) and filepath.lower().endswith('.json'):
             self.canvas.load_from_file(filepath)
 
     def load_premade_design(self, key):
@@ -258,8 +258,8 @@ class MainWindow(QMainWindow):
             (".".join(fp.split("\\")[-1].split("/")[-1].split(".")[:-1]).replace("_", " ").title(), fp)
             for fp in glob.glob('designs/*.json')
         ])
-        for i, key in enumerate(self.PREMADE_DESIGNS.keys()):
-            icon = QIcon(f'designs/{key.lower().replace(" ", "_")}.png')
+        for i, (key, fp) in enumerate(self.PREMADE_DESIGNS.items()):
+            icon = QIcon(fp.replace(".json", ".png")) if fp else QIcon()
             self.designSelectBox.addItem(icon, key)
 
     def do_background_process(self, title, msg, target, *args, **kwargs):

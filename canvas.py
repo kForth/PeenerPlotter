@@ -6,9 +6,6 @@ from PyQt5.QtWidgets import QWidget
 from PyQt5.QtGui import QPainter, QColor, QPen, QBrush, QImage
 import numpy as np
 
-from scipy import interpolate
-# from statsmodels.nonparametric.kernel_regression import KernelReg
-
 from _optimize_path_order import optimize_path_order
 from _min_enclosing_circle import make_circle
 from util import *
@@ -216,7 +213,7 @@ class PeenerCanvas(QWidget):
 
     def auto_size_paths(self):
         print("Auto Sizing Paths")
-        (circle_x, circle_y, circle_r) = make_circle(sum(self.paths, start=[]))
+        (circle_x, circle_y, circle_r) = make_circle(sum(self.paths, []))
         t_paths = []
         for path in self.paths:
             t_path = []
