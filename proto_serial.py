@@ -5,6 +5,7 @@ import platform
 IS_FAKE = any([e in platform.platform().lower() for e in ["macos", "windows"]])
 
 DEBUG_PRINT = True
+RX_BUFFER_SIZE = 128
 
 class ProtoSerial:
     INIT_STR = "\r\n\r\n"
@@ -41,7 +42,7 @@ class ProtoSerial:
             return self._connected
         return self.ser.is_open
 
-    def send(self, gcode, wait_for_resp=True):
+    def send(self, gcode, wait_for_resp=False):
         if type(gcode) is str:
             gcode = [gcode]
 
@@ -54,6 +55,16 @@ class ProtoSerial:
                 time.sleep(0.1)
             return ["Idle"]
 
+        grbl_buffer = []
+        resps = []
+        for line in gcode:
+            line = line.strip()
+            grbl_buffer.append(len(line)+1) # Track number of characters in grbl serial read buffer
+            while sum(grbl_buffer) >= RX_BUFFER_SIZE-1 or self.ser.in_waiting:
+                resps.append(self.ser.readline().decode().strip()) # Wait for grbl response
+                del grbl_buffer[0] # Delete the block character count corresponding to the last 'ok'
+            self.ser.write(line + '\n') # Send g-code block to grbl
+
         resps = []
         if self.ser.is_open:
             # Stream g-code to grbl
@@ -65,13 +76,10 @@ class ProtoSerial:
                     print(f'Sending: {self._escape_str(line)}')
                 self.ser.write((f'{l}\n').encode())
                 time.sleep(0.05)
-                # if wait_for_resp:
-                for _ in range(5):
+                for _ in range(5 if not wait_for_resp else 12e3): # Wait for stray reponses or up to 2mins for real response.
                     time.sleep(0.01)
                     if self.ser.in_waiting:
                         break
-                    # while not self.ser.in_waiting:
-                    #     time.sleep(0.1)
                 while self.ser.in_waiting:
                     resps += [self.ser.readline().decode().strip()]
                     if DEBUG_PRINT:

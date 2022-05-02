@@ -441,7 +441,7 @@ class Machine(QObject):
             self.ser.send([
                 self.GRBL_PEEN_XY(*scale_pt(pt))  # Draw each point of the path
                 for pt in path[1:]  # Skip the first point because we're already there
-            ])
+            ], True)
             self._wait_for_idle()
 
             print("  Done Path, Setting Peener to Low Speed")
